@@ -1,0 +1,90 @@
+name: VRT Actions
+description: Send screenshots or a built Storybook from CI to VRT, then create, upload, finalize and optionally wait for the build.
+author: koyori-app
+
+branding:
+  icon: camera
+  color: purple
+
+inputs:
+  token:
+    description: VRT Personal Access Token. Masked in logs; do not write it into the workflow or repository.
+    required: true
+  project:
+    description: Target project in tenant-slug/project-slug form.
+    required: true
+  url:
+    description: VRT base URL. A trailing slash is allowed.
+    required: true
+  mode:
+    description: screenshots (upload PNGs) or storybook (upload a built Storybook).
+    required: false
+    default: screenshots
+  dir:
+    description: Source directory. Defaults to ./screenshots for screenshots mode and ./storybook-static for storybook mode.
+    required: false
+    default: ""
+  only-changed:
+    description: storybook only. When true, only stories affected by the change are captured on the server.
+    required: false
+    default: "false"
+  stats-json:
+    description: Path to the webpack stats JSON used by only-changed. Defaults to <dir>/preview-stats.json when only-changed is true.
+    required: false
+    default: ""
+  wait:
+    description: Wait for the result and reflect the VRT result in the action exit code.
+    required: false
+    default: "true"
+  branch:
+    description: Branch name used to resolve the baseline. Defaults to GITHUB_HEAD_REF, then GITHUB_REF_NAME.
+    required: false
+    default: ""
+  commit:
+    description: Target commit SHA. Defaults to the pull_request head SHA, then GITHUB_SHA.
+    required: false
+    default: ""
+  cli-version:
+    description: vrt CLI release tag used by storybook mode (e.g. cli-v0.1.0). "latest" resolves the newest cli-v* release.
+    required: false
+    default: latest
+  app-url:
+    description: Web UI base URL used to build build-url. Defaults to url with a trailing /api removed.
+    required: false
+    default: ""
+
+outputs:
+  build-id:
+    description: UUID of the created VRT build.
+    value: ${{ steps.vrt.outputs.build-id }}
+  build-url:
+    description: URL of the VRT review screen for the build.
+    value: ${{ steps.vrt.outputs.build-url }}
+  result:
+    description: Final status for wait:true, or the post-finalize status for wait:false.
+    value: ${{ steps.vrt.outputs.result }}
+  exit-code:
+    description: VRT result code. passed/approved=0, changes_detected=1, failed/rejected/unexpected=2.
+    value: ${{ steps.vrt.outputs.exit-code }}
+
+runs:
+  using: composite
+  steps:
+    - id: vrt
+      shell: bash
+      run: bash "${GITHUB_ACTION_PATH}/scripts/main.sh"
+      env:
+        INPUT_TOKEN: ${{ inputs.token }}
+        INPUT_PROJECT: ${{ inputs.project }}
+        INPUT_URL: ${{ inputs.url }}
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_DIR: ${{ inputs.dir }}
+        INPUT_ONLY_CHANGED: ${{ inputs.only-changed }}
+        INPUT_STATS_JSON: ${{ inputs.stats-json }}
+        INPUT_WAIT: ${{ inputs.wait }}
+        INPUT_BRANCH: ${{ inputs.branch }}
+        INPUT_COMMIT: ${{ inputs.commit }}
+        INPUT_CLI_VERSION: ${{ inputs.cli-version }}
+        INPUT_APP_URL: ${{ inputs.app-url }}
+        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
