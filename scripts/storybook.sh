@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # storybook mode: delegate to the vrt CLI, downloaded from koyori-app/vrt.
 # Sourced by main.sh; relies on resolved globals and lib.sh helpers.
+#
+# shellcheck disable=SC2034
+# SC2034 (unused variable) is unreliable here: this file is sourced into main.sh,
+# which reads the globals assigned below (CODE, RESULT, BUILD_*) after dispatch.
 set -euo pipefail
 
 readonly VRT_REPO="koyori-app/vrt"

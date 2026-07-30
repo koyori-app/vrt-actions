@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Input resolution and validation for the VRT action.
 #
+# shellcheck disable=SC2034
+# SC2034 (unused variable) is unreliable here: the globals resolved below are
+# consumed by the other scripts that main.sh sources alongside this one.
+#
 # When sourced, this file defines `resolve_inputs` and `validate_inputs`.
 # When executed directly, it resolves and validates the current INPUT_* /
 # GITHUB_* environment and prints "validation: OK" on success. This lets the

@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Common helpers shared by the VRT action scripts.
 # This file is meant to be sourced, not executed directly.
+#
+# shellcheck disable=SC2034
+# SC2034 (unused variable) is unreliable here: the constants below are consumed
+# by the other scripts that main.sh sources alongside this one.
 set -euo pipefail
 
 # Guard against double-sourcing (readonly constants would otherwise re-error).
@@ -45,14 +49,22 @@ log() {
 
 # die prints a GitHub Actions error annotation and exits. If a build has already
 # been created, outputs are flushed first so build-url stays referenceable.
+#
+# The exit code is assigned unconditionally, never with `:=`. main.sh initialises
+# CODE=0 before dispatching, so a conditional assignment would leave CODE at 0
+# and make a fatal error exit successfully — the workflow would go green while
+# the outputs said result=failed.
 die() {
   echo "::error::$*" >&2
+  local code=1
   if [ -n "${BUILD_ID:-}" ]; then
-    : "${RESULT:=failed}"
-    : "${CODE:=2}"
+    # A build exists, so this is a run failure rather than a usage error.
+    RESULT="failed"
+    CODE=2
+    code=2
     write_outputs
   fi
-  exit "${CODE:-1}"
+  exit "$code"
 }
 
 # --- URL helpers -----------------------------------------------------------
