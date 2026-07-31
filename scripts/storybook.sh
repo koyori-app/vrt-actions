@@ -35,9 +35,11 @@ resolve_cli_tag() {
   # --fail で 4xx/5xx を非ゼロ終了にする。これが無いと 403(レート制限)の JSON が
   # そのまま jq に流れ、「該当タグ無し」と誤診してしまう。
   local resp
+  # `${auth[@]+...}` は空配列対策。bash 4.3 以前(macOS ランナーの /bin/bash 等)では
+  # set -u 下で空配列の "${auth[@]}" が unbound variable になる。
   if ! resp="$(curl -sSL --fail \
     -H "Accept: application/vnd.github+json" \
-    "${auth[@]}" "$api")"; then
+    ${auth[@]+"${auth[@]}"} "$api")"; then
     # curl 失敗(レート制限・ネットワーク・認証)は「該当リリースが無い」と区別する。
     die "could not reach the GitHub API to list releases of ${VRT_REPO} (rate limit, auth, or network error). Pin a tag with cli-version, e.g. cli-version: cli-v0.1.0."
   fi
