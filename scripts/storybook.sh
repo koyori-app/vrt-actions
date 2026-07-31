@@ -9,17 +9,44 @@ set -euo pipefail
 
 readonly VRT_REPO="koyori-app/vrt"
 
-# resolve_cli_tag echoes the release tag to download. For "latest" it picks the
-# first tag_name starting with "cli-v" from the releases list (authless).
+# resolve_cli_tag echoes the release tag to download. For "latest" it fetches the
+# releases list (authenticated when a token is available) and picks the newest
+# stable release whose tag starts with "cli-v".
+#
+# なぜ /releases/latest ではなく一覧 + フィルタなのか:
+# このリポジトリには将来バックエンド本体の Release も tag prefix で並ぶ設計のため、
+# /releases/latest はバックエンドの Release が最新になった時点で常に cli-v* 以外を
+# 返して死ぬ。一覧を取得して prerelease/draft を除外しつつ cli-v* だけを選別すれば、
+# タグ選別と prerelease 除外を両立できる。
 resolve_cli_tag() {
   if [ "$CLI_VERSION" != "latest" ]; then
     printf '%s' "$CLI_VERSION"
     return 0
   fi
+
+  local api="https://api.github.com/repos/${VRT_REPO}/releases"
+  local -a auth=()
+  # トークンがあれば認証ヘッダを付ける(未認証は 60回/時/IP でレート制限に当たりやすい)。
+  # フォークからの PR 等でトークンが空文字の場合は、ヘッダを付けず従来どおり未認証で試みる。
+  if [ -n "${GITHUB_TOKEN:-}" ]; then
+    auth=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+  fi
+
+  # --fail で 4xx/5xx を非ゼロ終了にする。これが無いと 403(レート制限)の JSON が
+  # そのまま jq に流れ、「該当タグ無し」と誤診してしまう。
+  local resp
+  if ! resp="$(curl -sSL --fail \
+    -H "Accept: application/vnd.github+json" \
+    "${auth[@]}" "$api")"; then
+    # curl 失敗(レート制限・ネットワーク・認証)は「該当リリースが無い」と区別する。
+    die "could not reach the GitHub API to list releases of ${VRT_REPO} (rate limit, auth, or network error). Pin a tag with cli-version, e.g. cli-version: cli-v0.1.0."
+  fi
+
   local tag
-  tag="$(curl -sSL "https://api.github.com/repos/${VRT_REPO}/releases" |
-    jq -r 'map(select(.tag_name | startswith("cli-v"))) | .[0].tag_name // empty')"
-  [ -n "$tag" ] || die "could not resolve the latest 'cli-v*' release tag from ${VRT_REPO}. Pin one with cli-version, e.g. cli-version: cli-v0.1.0."
+  tag="$(printf '%s' "$resp" |
+    jq -r 'map(select((.tag_name | startswith("cli-v")) and (.prerelease | not) and (.draft | not))) | .[0].tag_name // empty')"
+  # フィルタ結果が空 = 安定した cli-v* リリースがまだ無いケース。
+  [ -n "$tag" ] || die "no stable 'cli-v*' release found in ${VRT_REPO}. Pin a tag with cli-version, e.g. cli-version: cli-v0.1.0."
   printf '%s' "$tag"
 }
 

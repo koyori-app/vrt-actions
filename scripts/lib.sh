@@ -47,23 +47,29 @@ log() {
   echo "$*" >&2
 }
 
-# die prints a GitHub Actions error annotation and exits. If a build has already
-# been created, outputs are flushed first so build-url stays referenceable.
+# die prints a GitHub Actions error annotation, records a failed result, and
+# exits. Outputs are always flushed so callers can read result/exit-code (and
+# build-url once a build exists) regardless of where the failure happened.
 #
 # The exit code is assigned unconditionally, never with `:=`. main.sh initialises
 # CODE=0 before dispatching, so a conditional assignment would leave CODE at 0
 # and make a fatal error exit successfully — the workflow would go green while
 # the outputs said result=failed.
+#
+# write_outputs is defensive (every field uses ${VAR:-} and it appends to
+# ${GITHUB_OUTPUT:-/dev/null}), so calling die from an early stage such as
+# validate_inputs — before GITHUB_OUTPUT or the BUILD_* globals exist — cannot
+# raise a secondary error under `set -u`.
 die() {
   echo "::error::$*" >&2
   local code=1
   if [ -n "${BUILD_ID:-}" ]; then
-    # A build exists, so this is a run failure rather than a usage error.
-    RESULT="failed"
-    CODE=2
+    # ビルドが存在する = 実行時の失敗。作成前の失敗（使い方の誤り）と終了コードで区別する。
     code=2
-    write_outputs
   fi
+  RESULT="failed"
+  CODE="$code"
+  write_outputs
   exit "$code"
 }
 

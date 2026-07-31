@@ -52,6 +52,10 @@ inputs:
     description: Web UI base URL used to build build-url. Defaults to url with a trailing /api removed.
     required: false
     default: ""
+  github-token:
+    description: Token used to resolve the latest cli-v* release. Defaults to the workflow token.
+    required: false
+    default: ${{ github.token }}
 
 outputs:
   build-id:
@@ -86,5 +90,6 @@ runs:
         INPUT_COMMIT: ${{ inputs.commit }}
         INPUT_CLI_VERSION: ${{ inputs.cli-version }}
         INPUT_APP_URL: ${{ inputs.app-url }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
         PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         PR_NUMBER: ${{ github.event.pull_request.number }}

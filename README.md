@@ -52,6 +52,7 @@ Storybook の直下には `index.json` が必要です。
 | `commit` | いいえ | PR の head SHA、なければ `GITHUB_SHA` | 対象コミットの SHA です。 |
 | `cli-version` | いいえ | `latest` | `storybook` モードで使う `vrt` CLI のリリースタグ（例 `cli-v0.1.0`）です。`latest` のときは最新の `cli-v*` タグを解決します。 |
 | `app-url` | いいえ | `url` から末尾の `/api` を除いた値 | `build-url` の組み立てに使う Web UI のベース URL です。 |
+| `github-token` | いいえ | `${{ github.token }}` | `cli-version: latest` の解決で `koyori-app/vrt` の Release 一覧を取得する際に使う GitHub トークンです。未認証だと GitHub API のレート制限（60 回/時/IP）に当たりやすいため既定でワークフロートークンを使います。フォークからの PR などで空になっても未認証で解決を試みます。 |
 
 `commit` の既定値は、`pull_request` イベントでは `github.event.pull_request.head.sha`、それ以外では `GITHUB_SHA` です。
 `pull_request` イベントの `GITHUB_SHA` は GitHub 上に永続しないマージコミットを指すため、コミットステータスを貼れる PR ブランチ上の head SHA を優先します。

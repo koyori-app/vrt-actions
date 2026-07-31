@@ -26,6 +26,9 @@ resolve_inputs() {
   STATS_JSON="${INPUT_STATS_JSON:-}"
   WAIT="${INPUT_WAIT:-true}"
   CLI_VERSION="${INPUT_CLI_VERSION:-latest}"
+  # Token used only to resolve the latest cli-v* release (storybook mode). May be
+  # empty on forked PRs where the workflow token is restricted.
+  GITHUB_TOKEN="${INPUT_GITHUB_TOKEN:-}"
 
   # dir default depends on the mode.
   DIR="${INPUT_DIR:-}"
@@ -84,6 +87,15 @@ validate_inputs() {
     screenshots | storybook) ;;
     *) die "input 'mode' must be 'screenshots' or 'storybook', got '${MODE}'." ;;
   esac
+
+  # 真偽値の入力は mode と同様に弾く。誤記を黙って false に倒すと、
+  # wait の場合は回帰があってもワークフローが緑で通ってしまう。
+  for pair in "wait:$WAIT" "only-changed:$ONLY_CHANGED"; do
+    case "${pair#*:}" in
+      true | false) ;;
+      *) die "input '${pair%%:*}' must be 'true' or 'false', got '${pair#*:}'." ;;
+    esac
+  done
 
   # project must be tenant/project with both parts non-empty and exactly one slash.
   if [ "$PROJECT_INPUT" = "$TENANT" ] || [ -z "$TENANT" ] || [ -z "$PROJECT_SLUG" ] || [ "$PROJECT_SLUG" != "${PROJECT_SLUG%/*}" ]; then
