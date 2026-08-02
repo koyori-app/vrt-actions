@@ -29,14 +29,18 @@ done
 # start_server RECORD_FILE FINAL_STATUS — sets SERVER_PID and PORT.
 start_server() {
   : >"$tmp/port"
-  RECORD_FILE="$1" FINAL_STATUS="$2" python3 tests/fake_server.py >"$tmp/port" &
+  RECORD_FILE="$1" FINAL_STATUS="$2" python3 tests/fake_server.py \
+    >"$tmp/port" 2>"$tmp/server.err" &
   SERVER_PID=$!
   local n=0
-  while [ ! -s "$tmp/port" ] && [ "$n" -lt 100 ]; do
+  while [ ! -s "$tmp/port" ] && [ "$n" -lt 300 ]; do
     sleep 0.1
     n=$((n + 1))
   done
-  [ -s "$tmp/port" ] || fail "fake server did not start"
+  if [ ! -s "$tmp/port" ]; then
+    cat "$tmp/server.err" >&2
+    fail "fake server did not start within 30s"
+  fi
   PORT="$(cat "$tmp/port")"
 }
 

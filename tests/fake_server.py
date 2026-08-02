@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import re
+import socketserver
 from email import policy
 from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -81,8 +82,19 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": f"unexpected GET {self.path}"})
 
 
+class QuietHTTPServer(HTTPServer):
+    def server_bind(self):
+        # Skip HTTPServer.server_bind: its socket.getfqdn() call can block for
+        # tens of seconds on macOS runners (reverse-DNS timeout), delaying the
+        # port announcement past the test's startup deadline. server_name is
+        # never used by these tests.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name = "localhost"
+        self.server_port = self.server_address[1]
+
+
 def main():
-    server = HTTPServer(("127.0.0.1", 0), Handler)
+    server = QuietHTTPServer(("127.0.0.1", 0), Handler)
     print(server.server_address[1], flush=True)
     server.serve_forever()
 
