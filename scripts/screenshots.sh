@@ -25,7 +25,9 @@ run_screenshots() {
 
   BUILD_ID="$(printf '%s' "$RESP_BODY" | jq -r '.id')"
   BUILD_NUMBER="$(printf '%s' "$RESP_BODY" | jq -r '.number')"
-  [ -n "$BUILD_ID" ] && [ "$BUILD_ID" != "null" ] || die "build creation response missing 'id': ${RESP_BODY}"
+  if [ -z "$BUILD_ID" ] || [ "$BUILD_ID" = "null" ]; then
+    die "build creation response missing 'id': ${RESP_BODY}"
+  fi
   RESULT="$(printf '%s' "$RESP_BODY" | jq -r '.status')"
   CODE=2 # default pessimistic until we know better; records outputs on failure.
   compute_build_url
@@ -33,16 +35,26 @@ run_screenshots() {
   log "Created build ${BUILD_NUMBER} (${BUILD_ID})."
 
   # 6: upload each screenshot.
+  # curl parses -F values itself: a leading '@' or '<' turns the value into a
+  # local-file reference, and ';' / quotes in a file path are read as form
+  # syntax. The name therefore goes through --form-string (taken literally),
+  # and the PNG is copied to a mktemp-controlled path with no special
+  # characters before -F ever sees it. The server keys the screenshot on the
+  # 'name' field, not on the multipart filename, so the temp basename is fine.
+  local upload_tmp
+  upload_tmp="$(mktemp)"
   local i=0 name path
   while [ "$i" -lt "${#PNG_PATHS[@]}" ]; do
     name="${PNG_NAMES[$i]}"
     path="${PNG_PATHS[$i]}"
+    cp -f "$path" "$upload_tmp"
     request POST "$URL/v1/ci/builds/$BUILD_ID/screenshots" \
-      -F "name=$name" -F "file=@$path;type=image/png"
+      --form-string "name=$name" -F "file=@${upload_tmp};type=image/png"
     require_2xx "Uploading screenshot '${name}'"
     log "Uploaded ${name}."
     i=$((i + 1))
   done
+  rm -f "$upload_tmp"
 
   # 7: finalize.
   request POST "$URL/v1/ci/builds/$BUILD_ID/finalize"
@@ -67,21 +79,27 @@ poll_until_terminal() {
   local id="$1"
   local deadline now st
   deadline=$(($(date +%s) + POLL_TIMEOUT_SECONDS))
+  st="unknown"
   while :; do
-    request GET "$URL/v1/ci/builds/$id"
-    require_2xx "Fetching build status"
-    st="$(printf '%s' "$RESP_BODY" | jq -r '.status')"
-    RESULT="$st"
-    if is_terminal_status "$st"; then
-      log "Build ${BUILD_NUMBER} reached terminal status: ${st}."
-      return 0
+    # A transient network error / timeout while polling is retried until the
+    # overall deadline; only create/upload/finalize treat it as fatal.
+    if try_request GET "$URL/v1/ci/builds/$id"; then
+      require_2xx "Fetching build status"
+      st="$(printf '%s' "$RESP_BODY" | jq -r '.status')"
+      RESULT="$st"
+      if is_terminal_status "$st"; then
+        log "Build ${BUILD_NUMBER} reached terminal status: ${st}."
+        return 0
+      fi
+      log "Build ${BUILD_NUMBER} status: ${st}; waiting ${POLL_INTERVAL_SECONDS}s..."
+    else
+      log "Polling failed (network error or timeout); retrying in ${POLL_INTERVAL_SECONDS}s..."
     fi
     now="$(date +%s)"
     if [ "$now" -ge "$deadline" ]; then
       CODE=2
       die "timed out after ${POLL_TIMEOUT_SECONDS}s waiting for build ${BUILD_NUMBER} to finish (last status: ${st})."
     fi
-    log "Build ${BUILD_NUMBER} status: ${st}; waiting ${POLL_INTERVAL_SECONDS}s..."
     sleep "$POLL_INTERVAL_SECONDS"
   done
 }

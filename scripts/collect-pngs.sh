@@ -22,11 +22,34 @@ collect_pngs() {
 
   [ -d "$dir" ] || die "screenshots directory '${dir}' does not exist."
 
+  local f rel name size
+  local files=()
+  while IFS= read -r -d '' f; do
+    files+=("$f")
+  done < <(find "$dir" -type f -print0)
+
+  if [ "${#files[@]}" -eq 0 ]; then
+    die "screenshots directory '${dir}' contains no .png files."
+  fi
+
+  # Deterministic upload order without GNU sort: BSD sort on macOS runners has
+  # no -z, and a newline-delimited `find | sort` would corrupt paths containing
+  # newlines. The set is small (screenshots), so an in-shell insertion sort is
+  # fine; LC_ALL=C keeps the byte-wise order identical across runner locales.
+  local LC_ALL=C
+  local i j v
+  for ((i = 1; i < ${#files[@]}; i++)); do
+    v="${files[$i]}"
+    for ((j = i - 1; j >= 0; j--)); do
+      [[ "${files[$j]}" > "$v" ]] || break
+      files[j + 1]="${files[$j]}"
+    done
+    files[j + 1]="$v"
+  done
+
   PNG_NAMES=()
   PNG_PATHS=()
-
-  local f rel name size
-  while IFS= read -r -d '' f; do
+  for f in "${files[@]}"; do
     case "$f" in
       *.png | *.PNG) ;;
       *) die "found non-PNG file '${f}' under '${dir}'. Only .png files may be uploaded in screenshots mode." ;;
@@ -41,11 +64,7 @@ collect_pngs() {
     name="${rel%.[pP][nN][gG]}"
     PNG_NAMES+=("$name")
     PNG_PATHS+=("$f")
-  done < <(find "$dir" -type f -print0 | sort -z)
-
-  if [ "${#PNG_PATHS[@]}" -eq 0 ]; then
-    die "screenshots directory '${dir}' contains no .png files."
-  fi
+  done
 }
 
 # Direct execution: scan $DIR and print the derived names.

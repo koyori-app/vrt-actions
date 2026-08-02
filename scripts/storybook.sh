@@ -136,8 +136,10 @@ run_storybook() {
   set -e
 
   # Parse the last stdout line as JSON, in case anything else leaked to stdout.
+  # `|| true` keeps a no-match grep (exit 1) from killing the script via
+  # pipefail before the die below can report the problem and flush outputs.
   local json
-  json="$(printf '%s\n' "$out" | grep -E '^\s*\{' | tail -n 1)"
+  json="$(printf '%s\n' "$out" | grep -E '^\s*\{' | tail -n 1 || true)"
   if [ -z "$json" ] || ! printf '%s' "$json" | jq -e . >/dev/null 2>&1; then
     die "vrt CLI did not emit a JSON result on stdout (exit ${cli_exit}). storybook mode needs cli-v0.1.0 or newer (the --json flag). Raw stdout: ${out}"
   fi
@@ -150,7 +152,9 @@ run_storybook() {
   local cli_json_exit
   cli_json_exit="$(printf '%s' "$json" | jq -r '.exit_code // empty')"
 
-  [ -n "$BUILD_ID" ] && [ "$BUILD_ID" != "null" ] || die "vrt CLI JSON missing build_id: ${json}"
+  if [ -z "$BUILD_ID" ] || [ "$BUILD_ID" = "null" ]; then
+    die "vrt CLI JSON missing build_id: ${json}"
+  fi
   compute_build_url
 
   if [ "$WAIT" = "true" ]; then

@@ -22,6 +22,11 @@ readonly MAX_PNG_BYTES=$((25 * 1024 * 1024))
 readonly POLL_INTERVAL_SECONDS=5
 readonly POLL_TIMEOUT_SECONDS=1800 # 30 minutes.
 
+# curl timeouts. Without --max-time a hung request blocks forever and the
+# 30-minute poll deadline is never re-evaluated, so the action never exits.
+readonly CURL_CONNECT_TIMEOUT_SECONDS=15
+readonly CURL_MAX_TIME_SECONDS=300 # generous: uploads may carry 25 MiB PNGs.
+
 # --- Output handling -------------------------------------------------------
 # Outputs must be written regardless of the final exit code so that callers
 # using `continue-on-error: true` can still read `build-url` etc. We append to
@@ -114,22 +119,35 @@ init_auth_config() {
   trap "rm -f '$AUTH_CONFIG'" EXIT
 }
 
-# request METHOD URL [extra curl args...]
-# Sets globals RESP_BODY and RESP_CODE. Fails (via die) only on transport errors.
-request() {
+# try_request METHOD URL [extra curl args...]
+# Sets globals RESP_BODY and RESP_CODE. Returns non-zero on a transport error
+# (DNS, connect, timeout) instead of dying, so pollers can retry until their
+# own deadline.
+try_request() {
   local method="$1"
   local url="$2"
   shift 2
   local tmp
   tmp="$(mktemp)"
   local code
-  if ! code="$(curl -sS --config "$AUTH_CONFIG" -X "$method" "$@" -o "$tmp" -w '%{http_code}' "$url")"; then
+  if ! code="$(curl -sS --config "$AUTH_CONFIG" \
+    --connect-timeout "$CURL_CONNECT_TIMEOUT_SECONDS" \
+    --max-time "$CURL_MAX_TIME_SECONDS" \
+    -X "$method" "$@" -o "$tmp" -w '%{http_code}' "$url")"; then
     rm -f "$tmp"
-    die "HTTP request failed: $method $url (network error)"
+    return 1
   fi
   RESP_BODY="$(cat "$tmp")"
   RESP_CODE="$code"
   rm -f "$tmp"
+}
+
+# request METHOD URL [extra curl args...]
+# As try_request, but a transport error is fatal. Used for create / upload /
+# finalize, where a blind retry could duplicate side effects on the server.
+request() {
+  try_request "$@" ||
+    die "HTTP request failed: $1 $2 (network error or timeout after ${CURL_MAX_TIME_SECONDS}s)"
 }
 
 # require_2xx CONTEXT
