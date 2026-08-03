@@ -20,9 +20,12 @@ from email import policy
 from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-RECORD_FILE = os.environ["RECORD_FILE"]
+RECORD_FILE = os.environ.get("RECORD_FILE", "/dev/null")
 FINAL_STATUS = os.environ.get("FINAL_STATUS", "passed")
 BUILD_ID = "00000000-0000-4000-8000-000000000001"
+# Optional: a JSON file containing an array of pages (each an array of GitHub
+# release objects). Enables GET /repos/<owner>/<repo>/releases with paging.
+RELEASES_FILE = os.environ.get("RELEASES_FILE")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -74,6 +77,18 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": f"unexpected POST {self.path}"})
 
     def do_GET(self):
+        from urllib.parse import parse_qs, urlparse
+
+        parsed = urlparse(self.path)
+        if RELEASES_FILE and re.fullmatch(
+            r"/repos/[^/]+/[^/]+/releases", parsed.path
+        ):
+            with open(RELEASES_FILE) as f:
+                pages = json.load(f)
+            page = int(parse_qs(parsed.query).get("page", ["1"])[0])
+            body = pages[page - 1] if 1 <= page <= len(pages) else []
+            self._json(200, body)
+            return
         if self.path == f"/v1/ci/builds/{BUILD_ID}":
             Handler.poll_count += 1
             status = FINAL_STATUS if Handler.poll_count >= 2 else "processing"

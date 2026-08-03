@@ -24,7 +24,10 @@ resolve_cli_tag() {
     return 0
   fi
 
-  local api="https://api.github.com/repos/${VRT_REPO}/releases"
+  # GITHUB_API_URL は GitHub Actions が常に設定する(github.com では
+  # https://api.github.com)。これを尊重すると GHES でも動き、テストから
+  # fake server に差し替えられる。
+  local api="${GITHUB_API_URL:-https://api.github.com}/repos/${VRT_REPO}/releases"
   local -a auth=()
   # トークンがあれば認証ヘッダを付ける(未認証は 60回/時/IP でレート制限に当たりやすい)。
   # フォークからの PR 等でトークンが空文字の場合は、ヘッダを付けず従来どおり未認証で試みる。
@@ -32,24 +35,38 @@ resolve_cli_tag() {
     auth=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
   fi
 
-  # --fail で 4xx/5xx を非ゼロ終了にする。これが無いと 403(レート制限)の JSON が
-  # そのまま jq に流れ、「該当タグ無し」と誤診してしまう。
-  local resp
-  # `${auth[@]+...}` は空配列対策。bash 4.3 以前(macOS ランナーの /bin/bash 等)では
-  # set -u 下で空配列の "${auth[@]}" が unbound variable になる。
-  if ! resp="$(curl -sSL --fail \
-    -H "Accept: application/vnd.github+json" \
-    ${auth[@]+"${auth[@]}"} "$api")"; then
-    # curl 失敗(レート制限・ネットワーク・認証)は「該当リリースが無い」と区別する。
-    die "could not reach the GitHub API to list releases of ${VRT_REPO} (rate limit, auth, or network error). Pin a tag with cli-version, e.g. cli-version: cli-v0.1.0."
-  fi
+  # Releases API は既定 30 件/ページしか返さない。このリポジトリにはバックエンド
+  # 本体の Release も並ぶ設計なので、cli-v* が先頭 1 ページに居る保証はない。
+  # 安定版 cli-v* が見つかるか、空ページ(=全件走査済み)に達するまでページングする。
+  local page=1 resp tag count
+  while [ "$page" -le 20 ]; do
+    # --fail で 4xx/5xx を非ゼロ終了にする。これが無いと 403(レート制限)の JSON が
+    # そのまま jq に流れ、「該当タグ無し」と誤診してしまう。
+    # `${auth[@]+...}` は空配列対策。bash 4.3 以前(macOS ランナーの /bin/bash 等)では
+    # set -u 下で空配列の "${auth[@]}" が unbound variable になる。
+    if ! resp="$(curl -sSL --fail \
+      -H "Accept: application/vnd.github+json" \
+      ${auth[@]+"${auth[@]}"} "${api}?per_page=100&page=${page}")"; then
+      # curl 失敗(レート制限・ネットワーク・認証)は「該当リリースが無い」と区別する。
+      die "could not reach the GitHub API to list releases of ${VRT_REPO} (rate limit, auth, or network error). Pin a tag with cli-version, e.g. cli-version: cli-v0.1.0."
+    fi
 
-  local tag
-  tag="$(printf '%s' "$resp" |
-    jq -r 'map(select((.tag_name | startswith("cli-v")) and (.prerelease | not) and (.draft | not))) | .[0].tag_name // empty')"
-  # フィルタ結果が空 = 安定した cli-v* リリースがまだ無いケース。
-  [ -n "$tag" ] || die "no stable 'cli-v*' release found in ${VRT_REPO}. Pin a tag with cli-version, e.g. cli-version: cli-v0.1.0."
-  printf '%s' "$tag"
+    count="$(printf '%s' "$resp" | jq 'length')"
+    if [ "$count" -eq 0 ]; then
+      # 空ページ = 全 Release を見終えたが安定した cli-v* が無かった。
+      die "no stable 'cli-v*' release found in ${VRT_REPO}. Pin a tag with cli-version, e.g. cli-version: cli-v0.1.0."
+    fi
+
+    tag="$(printf '%s' "$resp" |
+      jq -r 'map(select((.tag_name | startswith("cli-v")) and (.prerelease | not) and (.draft | not))) | .[0].tag_name // empty')"
+    if [ -n "$tag" ]; then
+      printf '%s' "$tag"
+      return 0
+    fi
+    page=$((page + 1))
+  done
+  # 2000 件を見ても cli-v* が無いのは異常事態。無限ループよりは明示的に死ぬ。
+  die "gave up searching for a stable 'cli-v*' release in ${VRT_REPO} after 20 pages. Pin a tag with cli-version, e.g. cli-version: cli-v0.1.0."
 }
 
 # detect_target echoes the release target triple for the current runner.

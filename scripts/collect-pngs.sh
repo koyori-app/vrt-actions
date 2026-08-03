@@ -47,8 +47,13 @@ collect_pngs() {
     files[j + 1]="$v"
   done
 
+  # Mirror the VRT API's constraints (PNG signature + IHDR dimensions, trimmed
+  # name of 1..MAX_NAME_BYTES bytes, unique names) before the build is created,
+  # so a bad file cannot leave an unfinalized build behind after upload starts.
   PNG_NAMES=()
   PNG_PATHS=()
+  local trimmed_names=()
+  local dims width height trimmed name_bytes seen
   for f in "${files[@]}"; do
     case "$f" in
       *.png | *.PNG) ;;
@@ -60,8 +65,36 @@ collect_pngs() {
       die "screenshot '${f}' is ${size} bytes, exceeding the ${MAX_PNG_BYTES}-byte (25 MiB) per-file limit."
     fi
 
+    if ! dims="$(png_dimensions "$f")"; then
+      die "screenshot '${f}' is not a valid PNG (missing PNG signature or IHDR chunk)."
+    fi
+    width="${dims%% *}"
+    height="${dims##* }"
+    if [ "$width" -lt 1 ] || [ "$width" -gt "$MAX_PNG_DIMENSION" ] ||
+      [ "$height" -lt 1 ] || [ "$height" -gt "$MAX_PNG_DIMENSION" ]; then
+      die "screenshot '${f}' is ${width}x${height}px; width and height must be between 1 and ${MAX_PNG_DIMENSION}."
+    fi
+
     rel="${f#"$dir"/}"
     name="${rel%.[pP][nN][gG]}"
+
+    trimmed="$(trim_whitespace "$name")"
+    if [ -z "$trimmed" ]; then
+      die "screenshot '${f}' derives an empty name after trimming. Rename the file so the path relative to '${dir}' (without .png) is non-empty."
+    fi
+    name_bytes="$(printf '%s' "$trimmed" | wc -c | tr -d '[:space:]')"
+    if [ "$name_bytes" -gt "$MAX_NAME_BYTES" ]; then
+      die "screenshot name '${trimmed}' is ${name_bytes} bytes, exceeding the ${MAX_NAME_BYTES}-byte limit. Shorten the path relative to '${dir}'."
+    fi
+    # The API trims names and compares them within a build, so foo.png and
+    # foo.PNG (or " foo .png") collide even though the paths differ.
+    for seen in ${trimmed_names[@]+"${trimmed_names[@]}"}; do
+      if [ "$seen" = "$trimmed" ]; then
+        die "duplicate screenshot name '${trimmed}' (from '${f}'). Names must be unique within a build after trimming; note that foo.png and foo.PNG collide."
+      fi
+    done
+    trimmed_names+=("$trimmed")
+
     PNG_NAMES+=("$name")
     PNG_PATHS+=("$f")
   done

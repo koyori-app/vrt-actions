@@ -22,7 +22,10 @@ mkdir -p "$shots"
 NAMES=('@env' '<lt' 'a;b' 'qu"ote' $'nl\nname' 'plain')
 i=0
 for n in "${NAMES[@]}"; do
-  printf 'fake-png-payload-%s' "$i" >"$shots/$n.png"
+  write_min_png "$shots/$n.png"
+  # Distinct trailing bytes after IEND keep the per-file sha256 comparison
+  # meaningful; the header validation and PNG decoders ignore them.
+  printf 'trailer-%s' "$i" >>"$shots/$n.png"
   i=$((i + 1))
 done
 

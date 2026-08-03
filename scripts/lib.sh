@@ -18,6 +18,12 @@ _VRT_LIB_SOURCED=1
 # Per-screenshot upload limit (25 MiB), matching the VRT screenshots API.
 readonly MAX_PNG_BYTES=$((25 * 1024 * 1024))
 
+# Image / name constraints enforced by the VRT screenshots API. Validated
+# locally before the build is created, so an invalid set cannot leave an
+# unfinalized build behind.
+readonly MAX_PNG_DIMENSION=10000
+readonly MAX_NAME_BYTES=255
+
 # Polling configuration for `wait: true`.
 readonly POLL_INTERVAL_SECONDS=5
 readonly POLL_TIMEOUT_SECONDS=1800 # 30 minutes.
@@ -84,6 +90,31 @@ die() {
 strip_trailing_slash() {
   local v="$1"
   printf '%s' "${v%/}"
+}
+
+# --- String helpers ----------------------------------------------------------
+
+# trim_whitespace VALUE — strip leading/trailing whitespace (incl. newlines),
+# mirroring the trim the VRT API applies to screenshot names.
+trim_whitespace() {
+  local v="$1"
+  v="${v#"${v%%[![:space:]]*}"}"
+  v="${v%"${v##*[![:space:]]}"}"
+  printf '%s' "$v"
+}
+
+# --- PNG helpers -------------------------------------------------------------
+
+# png_dimensions FILE — echoes "WIDTH HEIGHT" from the IHDR chunk, or returns
+# non-zero if the file does not start with a PNG signature + IHDR. Uses od,
+# which is available on both GNU and BSD userlands.
+png_dimensions() {
+  local hex
+  hex="$(od -An -v -tx1 -N24 "$1" | tr -d ' \t\n')"
+  [ "${#hex}" -ge 48 ] || return 1
+  [ "${hex:0:16}" = "89504e470d0a1a0a" ] || return 1 # PNG signature
+  [ "${hex:24:8}" = "49484452" ] || return 1         # "IHDR"
+  echo "$((16#${hex:32:8})) $((16#${hex:40:8}))"
 }
 
 # --- Status mapping --------------------------------------------------------
