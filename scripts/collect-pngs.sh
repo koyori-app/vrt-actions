@@ -66,7 +66,7 @@ collect_pngs() {
     fi
 
     if ! dims="$(png_dimensions "$f")"; then
-      die "screenshot '${f}' is not a valid PNG (missing PNG signature or IHDR chunk)."
+      die "screenshot '${f}' is not a valid PNG (${dims:-unreadable})."
     fi
     width="${dims%% *}"
     height="${dims##* }"

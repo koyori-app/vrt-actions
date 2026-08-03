@@ -105,16 +105,120 @@ trim_whitespace() {
 
 # --- PNG helpers -------------------------------------------------------------
 
-# png_dimensions FILE — echoes "WIDTH HEIGHT" from the IHDR chunk, or returns
-# non-zero if the file does not start with a PNG signature + IHDR. Uses od,
-# which is available on both GNU and BSD userlands.
+# CRC-32 (zlib polynomial, as used by PNG chunks) over a lowercase-hex byte
+# string, in pure bash. Only ever applied to the pre-IDAT region of a PNG,
+# which is small (IHDR + a few ancillary chunks; typically well under 1 KiB).
+_CRC_TABLE_READY=""
+_crc32_init() {
+  local c n k
+  for ((n = 0; n < 256; n++)); do
+    c=$n
+    for ((k = 0; k < 8; k++)); do
+      if ((c & 1)); then
+        c=$(((c >> 1) ^ 0xEDB88320))
+      else
+        c=$((c >> 1))
+      fi
+    done
+    _CRC_TABLE[n]=$c
+  done
+  _CRC_TABLE_READY=1
+}
+
+crc32_hex() {
+  [ -n "$_CRC_TABLE_READY" ] || _crc32_init
+  local hex="$1" crc=4294967295 i b
+  local n=${#hex}
+  for ((i = 0; i < n; i += 2)); do
+    b=$((16#${hex:i:2}))
+    crc=$(((crc >> 8) ^ _CRC_TABLE[(crc ^ b) & 255]))
+  done
+  printf '%08x' $((crc ^ 4294967295))
+}
+
+# png_dimensions FILE — echoes "WIDTH HEIGHT" and returns 0 when the PNG's
+# header region is valid; otherwise echoes a reason and returns 1.
+#
+# サーバー側 (validate_png -> image::into_dimensions) は署名から最初の IDAT の
+# 直前までを実際にパースし、その区間の各チャンクの完全性と CRC を検証する
+# (IDAT 以降のバイト列は読まない)。ここで同じ区間を同じ厳しさで検査することで、
+# 「事前検証は通るのにアップロードで拒否され、作成済みビルドが未完了のまま残る」
+# 事故を防ぐ。24 バイトで途切れたファイルや IDAT 前で切れたファイルはここで落ちる。
 png_dimensions() {
-  local hex
-  hex="$(od -An -v -tx1 -N24 "$1" | tr -d ' \t\n')"
-  [ "${#hex}" -ge 48 ] || return 1
-  [ "${hex:0:16}" = "89504e470d0a1a0a" ] || return 1 # PNG signature
-  [ "${hex:24:8}" = "49484452" ] || return 1         # "IHDR"
-  echo "$((16#${hex:32:8})) $((16#${hex:40:8}))"
+  local LC_ALL=C
+  local file="$1"
+  local file_size hex buf_bytes pos end len type body stored
+  local width="" height="" chunks=0
+  file_size="$(wc -c <"$file" | tr -d '[:space:]')"
+
+  # Pre-IDAT chunks are tiny in real screenshots; 256 KiB of headroom covers
+  # even large ICC profiles. Past that we refuse rather than walk unvalidated.
+  hex="$(od -An -v -tx1 -N262144 "$file" | tr -d ' \t\n')"
+  buf_bytes=$((${#hex} / 2))
+
+  if [ "$file_size" -lt 8 ] || [ "${hex:0:16}" != "89504e470d0a1a0a" ]; then
+    echo "missing PNG signature"
+    return 1
+  fi
+
+  pos=8
+  while :; do
+    chunks=$((chunks + 1))
+    if [ "$chunks" -gt 100 ]; then
+      echo "more than 100 chunks before the image data"
+      return 1
+    fi
+    if [ $((pos + 8)) -gt "$file_size" ]; then
+      echo "truncated: chunk header at byte ${pos} runs past end of file"
+      return 1
+    fi
+    if [ $((pos + 8)) -gt "$buf_bytes" ]; then
+      echo "more than 256 KiB of chunks before the image data"
+      return 1
+    fi
+    len=$((16#${hex:pos*2:8}))
+    type="${hex:pos*2+8:8}"
+
+    if [ "$type" = "49444154" ]; then # IDAT
+      if [ -z "$width" ]; then
+        echo "IDAT chunk appears before IHDR"
+        return 1
+      fi
+      # The server stops parsing here; so do we. IDAT bodies and anything
+      # after them (including trailing bytes past IEND) are never inspected.
+      echo "$width $height"
+      return 0
+    fi
+
+    end=$((pos + 8 + len + 4))
+    if [ "$end" -gt "$file_size" ]; then
+      echo "truncated: chunk at byte ${pos} (length ${len}) runs past end of file"
+      return 1
+    fi
+    if [ "$end" -gt "$buf_bytes" ]; then
+      echo "more than 256 KiB of chunks before the image data"
+      return 1
+    fi
+    body="${hex:pos*2+8:(len+4)*2}" # chunk type + data
+    stored="${hex:(pos+8+len)*2:8}"
+    if [ "$(crc32_hex "$body")" != "$stored" ]; then
+      echo "CRC mismatch in chunk at byte ${pos}"
+      return 1
+    fi
+
+    if [ -z "$width" ]; then
+      if [ "$type" != "49484452" ] || [ "$len" -ne 13 ]; then # "IHDR"
+        echo "first chunk is not a 13-byte IHDR"
+        return 1
+      fi
+      width=$((16#${hex:32:8}))
+      height=$((16#${hex:40:8}))
+    elif [ "$type" = "49454e44" ]; then # IEND
+      echo "no IDAT chunk before IEND"
+      return 1
+    fi
+    pos=$end
+  done
 }
 
 # --- Status mapping --------------------------------------------------------

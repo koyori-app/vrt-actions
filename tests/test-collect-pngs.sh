@@ -6,6 +6,8 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # shellcheck source=tests/helpers.sh
 . tests/helpers.sh
 
+command -v python3 >/dev/null 2>&1 || fail "python3 is required for this test"
+
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
@@ -48,11 +50,37 @@ mkdir -p "$fakepng"
 printf 'this is text, not a png' >"$fakepng/sample.png"
 expect_reject "rejects renamed text file" "$fakepng" "not a valid PNG"
 
-# --- Reject: dimensions over the API limit. -----------------------------------
+# --- Reject: dimensions over the API limit / zero dimensions. -----------------
 wide="$tmp/wide"
 mkdir -p "$wide"
-write_png_header "$wide/wide.png" 10001 100
+write_png_dims "$wide/wide.png" 10001 100
 expect_reject "rejects >10000px width" "$wide" "must be between 1 and 10000"
+
+zero="$tmp/zero"
+mkdir -p "$zero"
+write_png_dims "$zero/zero.png" 0 100
+expect_reject "rejects zero width" "$zero" "must be between 1 and 10000"
+
+# --- Reject: valid signature + dimensions, but truncated. ---------------------
+# The old 24-byte header check accepted both of these; the server's PNG parser
+# (which walks every chunk up to the first IDAT, CRCs included) does not.
+cut_ihdr="$tmp/cut-ihdr"
+mkdir -p "$cut_ihdr"
+write_min_png "$tmp/min.png"
+head -c 24 "$tmp/min.png" >"$cut_ihdr/cut.png"
+expect_reject "rejects PNG cut mid-IHDR" "$cut_ihdr" "not a valid PNG"
+
+cut_idat="$tmp/cut-idat"
+mkdir -p "$cut_idat"
+head -c 33 "$tmp/min.png" >"$cut_idat/cut.png" # signature + full IHDR, no IDAT
+expect_reject "rejects PNG cut before IDAT" "$cut_idat" "not a valid PNG"
+
+# --- Reject: IHDR data corrupted without updating its CRC. --------------------
+badcrc="$tmp/badcrc"
+mkdir -p "$badcrc"
+cp "$tmp/min.png" "$badcrc/bad.png"
+printf '\002' | dd of="$badcrc/bad.png" bs=1 seek=19 count=1 conv=notrunc 2>/dev/null
+expect_reject "rejects CRC mismatch" "$badcrc" "not a valid PNG"
 
 # --- Reject: empty derived name ('.png'). -------------------------------------
 noname="$tmp/noname"

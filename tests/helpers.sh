@@ -33,20 +33,23 @@ write_min_png() {
   printf '\211PNG\015\012\032\012\000\000\000\015IHDR\000\000\000\001\000\000\000\001\010\006\000\000\000\037\025\304\211\000\000\000\013IDATx\332cd`\000\000\000\006\000\0020\201\320/\000\000\000\000IEND\256B`\202' >"$1"
 }
 
-# png_be32 N — emit a 4-byte big-endian integer as printf octal escapes.
-png_be32() {
-  printf '\\%03o\\%03o\\%03o\\%03o' \
-    $(($1 >> 24 & 255)) $(($1 >> 16 & 255)) $(($1 >> 8 & 255)) $(($1 & 255))
-}
-
-# write_png_header FILE WIDTH HEIGHT — write only the PNG signature and an
-# IHDR prefix with the given dimensions. Enough to exercise the dimension
-# validation; not a decodable image.
-write_png_header() {
-  printf '\211PNG\015\012\032\012\000\000\000\015IHDR' >"$1"
-  # shellcheck disable=SC2059
-  printf "$(png_be32 "$2")$(png_be32 "$3")" >>"$1"
-  printf '\010\006\000\000\000' >>"$1"
+# write_png_dims FILE WIDTH HEIGHT — the smallest byte string that satisfies
+# the server-equivalent header validation: signature, CRC-valid IHDR with the
+# given dimensions, and an IDAT chunk header. Not a decodable image; use it to
+# exercise the dimension bounds, not the happy path.
+write_png_dims() {
+  python3 - "$1" "$2" "$3" <<'EOF'
+import struct, sys, zlib
+path, w, h = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+ihdr = struct.pack(">II5B", w, h, 8, 6, 0, 0, 0)
+chunk = (
+    struct.pack(">I", len(ihdr))
+    + b"IHDR" + ihdr
+    + struct.pack(">I", zlib.crc32(b"IHDR" + ihdr))
+)
+with open(path, "wb") as f:
+    f.write(b"\x89PNG\r\n\x1a\n" + chunk + struct.pack(">I", 0) + b"IDAT")
+EOF
 }
 
 # sha256_file FILE — portable across GNU (sha256sum) and BSD (shasum). Reads
