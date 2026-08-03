@@ -60,12 +60,24 @@ mkdir -p "$noname"
 write_min_png "$noname/.png"
 expect_reject "rejects empty derived name" "$noname" "empty name"
 
-# --- Reject: duplicate names after trimming (foo.png vs foo.PNG). --------------
+# --- Reject: duplicate names after trimming ('foo' vs 'foo '). ----------------
 dup="$tmp/dup"
 mkdir -p "$dup"
 write_min_png "$dup/foo.png"
-write_min_png "$dup/foo.PNG"
-expect_reject "rejects duplicate derived names" "$dup" "duplicate screenshot name"
+write_min_png "$dup/foo .png"
+expect_reject "rejects duplicate names after trimming" "$dup" "duplicate screenshot name"
+
+# --- Reject: foo.png vs foo.PNG — only where the filesystem itself keeps them
+# --- apart (macOS APFS is case-insensitive: both paths land on one file). -----
+dup2="$tmp/dup2"
+mkdir -p "$dup2"
+write_min_png "$dup2/bar.png"
+write_min_png "$dup2/bar.PNG"
+if [ "$(find "$dup2" -type f | wc -l | tr -d '[:space:]')" -eq 2 ]; then
+  expect_reject "rejects case-colliding names" "$dup2" "duplicate screenshot name"
+else
+  pass "case-colliding names skipped (case-insensitive filesystem)"
+fi
 
 # --- Reject: derived name over 255 bytes. --------------------------------------
 longdir="$(printf 'a%.0s' $(seq 1 200))"
