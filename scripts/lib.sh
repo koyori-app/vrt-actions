@@ -149,7 +149,8 @@ png_dimensions() {
   local file="$1"
   local file_size hex buf_bytes pos end len type body stored
   local bit_depth color_type compression filter interlace first_byte
-  local width="" height="" chunks=0
+  local seq fw fh fx fy dispose blend
+  local width="" height="" chunks=0 plte_seen="" fctl_seen=""
   file_size="$(wc -c <"$file" | tr -d '[:space:]')"
 
   # Pre-IDAT chunks are tiny in real screenshots; 256 KiB of headroom covers
@@ -243,8 +244,46 @@ png_dimensions() {
       echo "no IDAT chunk before IEND"
       return 1
     elif [ "$type" = "504c5445" ]; then # PLTE
+      if [ -n "$plte_seen" ]; then
+        echo "duplicate PLTE chunk"
+        return 1
+      fi
+      plte_seen=1
       if [ "$len" -eq 0 ] || [ $((len % 3)) -ne 0 ] || [ "$len" -gt 768 ]; then
         echo "invalid PLTE chunk length ${len}"
+        return 1
+      fi
+    elif [ "$type" = "6663544c" ]; then # fcTL (APNG frame control)
+      # Ancillary、だが png crate は fcTL のパース失敗を例外的に致命扱いする。
+      # pre-IDAT の fcTL はデフォルト画像のフレームで、1 個だけ・sequence 0・
+      # フレーム矩形が画像内・dispose/blend が定義値、が crate の要求。
+      if [ "$len" -ne 26 ]; then
+        echo "invalid fcTL chunk length ${len}"
+        return 1
+      fi
+      if [ -n "$fctl_seen" ]; then
+        echo "duplicate fcTL chunk before IDAT"
+        return 1
+      fi
+      fctl_seen=1
+      seq=$((16#${hex:(pos+8)*2:8}))
+      fw=$((16#${hex:(pos+12)*2:8}))
+      fh=$((16#${hex:(pos+16)*2:8}))
+      fx=$((16#${hex:(pos+20)*2:8}))
+      fy=$((16#${hex:(pos+24)*2:8}))
+      dispose=$((16#${hex:(pos+32)*2:2}))
+      blend=$((16#${hex:(pos+33)*2:2}))
+      if [ "$seq" -ne 0 ]; then
+        echo "fcTL before IDAT must have sequence number 0 (got ${seq})"
+        return 1
+      fi
+      if [ "$fw" -lt 1 ] || [ "$fh" -lt 1 ] ||
+        [ $((fx + fw)) -gt "$width" ] || [ $((fy + fh)) -gt "$height" ]; then
+        echo "fcTL frame ${fw}x${fh} at ${fx},${fy} does not fit the ${width}x${height} image"
+        return 1
+      fi
+      if [ "$dispose" -gt 2 ] || [ "$blend" -gt 1 ]; then
+        echo "invalid fcTL dispose/blend op (${dispose}/${blend})"
         return 1
       fi
     else

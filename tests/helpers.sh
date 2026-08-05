@@ -37,8 +37,9 @@ write_min_png() {
 # The smallest byte string that satisfies the server-equivalent header
 # validation: signature, CRC-valid IHDR, and an IDAT chunk header. Every chunk
 # CRC is valid, so it exercises the *semantic* checks, not the CRC check.
-# EXTRA, when given, inserts an empty chunk of that 4-letter type (e.g. a
-# second "IHDR", or an unknown critical type) between IHDR and IDAT.
+# EXTRA, when given, inserts chunks between IHDR and IDAT: a comma-separated
+# list of TYPE[:HEXDATA] specs (e.g. "PLTE:000000,fcTL:0000..."). A bare
+# "IHDR" duplicates the IHDR data; other bare types get an empty payload.
 # Not a decodable image; use it for validation tests, not the happy path.
 write_png_dims() {
   python3 - "$@" <<'EOF'
@@ -58,9 +59,10 @@ depth, color, comp, filt, inter = (
 extra = args[8] if len(args) >= 9 else ""
 ihdr = struct.pack(">II5B", w, h, depth, color, comp, filt, inter)
 png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr)
-if extra:
-    data = ihdr if extra == "IHDR" else b""
-    png += chunk(extra.encode(), data)
+for spec in filter(None, extra.split(",")):
+    ctype, _, dhex = spec.partition(":")
+    data = bytes.fromhex(dhex) if dhex else (ihdr if ctype == "IHDR" else b"")
+    png += chunk(ctype.encode(), data)
 png += struct.pack(">I", 0) + b"IDAT"
 with open(path, "wb") as f:
     f.write(png)
