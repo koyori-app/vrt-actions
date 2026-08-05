@@ -145,10 +145,15 @@ run_storybook() {
   fi
 
   # 4: run the CLI. stdout carries a single JSON line; logs go to stderr.
+  # env -i で環境を PATH と VRT_* だけに絞る。実行時に取得した外部バイナリへ、
+  # 継承した INPUT_GITHUB_TOKEN / GITHUB_TOKEN や runner の資格情報類を
+  # 渡さないための最小権限化。
   log "Running: vrt ${args[*]}"
   local out cli_exit
   set +e
-  out="$(VRT_URL="$URL" VRT_TOKEN="$TOKEN" VRT_PROJECT="${TENANT}/${PROJECT_SLUG}" "$vrt" "${args[@]}")"
+  out="$(env -i PATH="$PATH" \
+    VRT_URL="$URL" VRT_TOKEN="$TOKEN" VRT_PROJECT="${TENANT}/${PROJECT_SLUG}" \
+    "$vrt" "${args[@]}")"
   cli_exit=$?
   set -e
 

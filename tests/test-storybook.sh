@@ -14,28 +14,29 @@ mkdir -p "$sb"
 echo '{}' >"$sb/index.json"
 
 # Fake CLI: records argv and env, emits stderr noise plus a non-JSON stdout
-# line before the JSON result, mimicking a chatty real binary.
-cat >"$tmp/vrt" <<'EOF'
+# line before the JSON result, mimicking a chatty real binary. Paths are baked
+# in at write time because run_storybook launches the CLI under env -i — the
+# fake must not depend on inherited variables. LEAKY_SECRET is a canary: it is
+# set in the driver environment and must NOT survive into the CLI.
+cat >"$tmp/vrt" <<EOF
 #!/usr/bin/env bash
-printf '%s\n' "$*" >"$FAKE_VRT_ARGS_FILE"
-printf 'url=%s project=%s\n' "$VRT_URL" "$VRT_PROJECT" >>"$FAKE_VRT_ARGS_FILE"
+printf '%s\n' "\$*" >"$tmp/args"
+printf 'url=%s project=%s leak=%s\n' "\$VRT_URL" "\$VRT_PROJECT" "\${LEAKY_SECRET:-none}" >>"$tmp/args"
 echo "some progress log" >&2
 echo "stdout noise before the JSON line"
-cat "$FAKE_VRT_JSON_FILE"
+cat "$tmp/cli.json"
 EOF
 chmod +x "$tmp/vrt"
 
 export FAKE_VRT_CLI="$tmp/vrt"
 export FAKE_VRT_ARGS_FILE="$tmp/args"
-export FAKE_VRT_JSON_FILE="$tmp/cli.json"
 
 # run_driver [extra K=V...] — echoes rc; driver stdout goes to $tmp/driver.out.
 run_driver() {
   local rc=0
   env -i PATH="$PATH" \
     FAKE_VRT_CLI="$FAKE_VRT_CLI" \
-    FAKE_VRT_ARGS_FILE="$FAKE_VRT_ARGS_FILE" \
-    FAKE_VRT_JSON_FILE="$FAKE_VRT_JSON_FILE" \
+    LEAKY_SECRET=should-not-leak \
     INPUT_TOKEN=t \
     INPUT_URL=https://vrt.example.com/api \
     INPUT_PROJECT=acme/web \
@@ -60,6 +61,7 @@ args="$(cat "$FAKE_VRT_ARGS_FILE")"
 assert_contains "$args" "--wait" "wait:true passes --wait"
 assert_contains "$args" "--dir $sb" "CLI receives --dir"
 assert_contains "$args" "url=https://vrt.example.com/api project=acme/web" "CLI env contract"
+assert_contains "$args" "leak=none" "env -i keeps inherited secrets away from the CLI"
 
 # --- Case 2: wait:true, CLI reports changes_detected / exit_code 1. ----------
 printf '%s\n' '{"build_id":"b-1","build_number":9,"tenant_slug":"acme","project_slug":"web","status":"changes_detected","exit_code":1}' >"$tmp/cli.json"
