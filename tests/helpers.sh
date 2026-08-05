@@ -33,22 +33,37 @@ write_min_png() {
   printf '\211PNG\015\012\032\012\000\000\000\015IHDR\000\000\000\001\000\000\000\001\010\006\000\000\000\037\025\304\211\000\000\000\013IDATx\332cd`\000\000\000\006\000\0020\201\320/\000\000\000\000IEND\256B`\202' >"$1"
 }
 
-# write_png_dims FILE WIDTH HEIGHT — the smallest byte string that satisfies
-# the server-equivalent header validation: signature, CRC-valid IHDR with the
-# given dimensions, and an IDAT chunk header. Not a decodable image; use it to
-# exercise the dimension bounds, not the happy path.
+# write_png_dims FILE WIDTH HEIGHT [DEPTH COLOR COMP FILTER INTERLACE [EXTRA]]
+# The smallest byte string that satisfies the server-equivalent header
+# validation: signature, CRC-valid IHDR, and an IDAT chunk header. Every chunk
+# CRC is valid, so it exercises the *semantic* checks, not the CRC check.
+# EXTRA, when given, inserts an empty chunk of that 4-letter type (e.g. a
+# second "IHDR", or an unknown critical type) between IHDR and IDAT.
+# Not a decodable image; use it for validation tests, not the happy path.
 write_png_dims() {
-  python3 - "$1" "$2" "$3" <<'EOF'
+  python3 - "$@" <<'EOF'
 import struct, sys, zlib
-path, w, h = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
-ihdr = struct.pack(">II5B", w, h, 8, 6, 0, 0, 0)
-chunk = (
-    struct.pack(">I", len(ihdr))
-    + b"IHDR" + ihdr
-    + struct.pack(">I", zlib.crc32(b"IHDR" + ihdr))
+
+def chunk(ctype, data):
+    return (
+        struct.pack(">I", len(data)) + ctype + data
+        + struct.pack(">I", zlib.crc32(ctype + data))
+    )
+
+args = sys.argv[1:]
+path, w, h = args[0], int(args[1]), int(args[2])
+depth, color, comp, filt, inter = (
+    [int(v) for v in args[3:8]] if len(args) >= 8 else [8, 6, 0, 0, 0]
 )
+extra = args[8] if len(args) >= 9 else ""
+ihdr = struct.pack(">II5B", w, h, depth, color, comp, filt, inter)
+png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr)
+if extra:
+    data = ihdr if extra == "IHDR" else b""
+    png += chunk(extra.encode(), data)
+png += struct.pack(">I", 0) + b"IDAT"
 with open(path, "wb") as f:
-    f.write(b"\x89PNG\r\n\x1a\n" + chunk + struct.pack(">I", 0) + b"IDAT")
+    f.write(png)
 EOF
 }
 

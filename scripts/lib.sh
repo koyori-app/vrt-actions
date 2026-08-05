@@ -148,6 +148,7 @@ png_dimensions() {
   local LC_ALL=C
   local file="$1"
   local file_size hex buf_bytes pos end len type body stored
+  local bit_depth color_type compression filter interlace first_byte
   local width="" height="" chunks=0
   file_size="$(wc -c <"$file" | tr -d '[:space:]')"
 
@@ -213,9 +214,48 @@ png_dimensions() {
       fi
       width=$((16#${hex:32:8}))
       height=$((16#${hex:40:8}))
+      # png crate は IHDR の残りのフィールドもここで検証して弾く。同じ組み合わせ
+      # 表で拒否しないと、CRC だけ正しい不正 IHDR がアップロード時まで生き残る。
+      bit_depth=$((16#${hex:48:2}))
+      color_type=$((16#${hex:50:2}))
+      compression=$((16#${hex:52:2}))
+      filter=$((16#${hex:54:2}))
+      interlace=$((16#${hex:56:2}))
+      case "${color_type}/${bit_depth}" in
+        0/1 | 0/2 | 0/4 | 0/8 | 0/16 | 2/8 | 2/16 | 3/1 | 3/2 | 3/4 | 3/8 | 4/8 | 4/16 | 6/8 | 6/16) ;;
+        *)
+          echo "invalid bit depth / color type combination (depth ${bit_depth}, color type ${color_type})"
+          return 1
+          ;;
+      esac
+      if [ "$compression" -ne 0 ] || [ "$filter" -ne 0 ]; then
+        echo "invalid compression/filter method (${compression}/${filter})"
+        return 1
+      fi
+      if [ "$interlace" -ne 0 ] && [ "$interlace" -ne 1 ]; then
+        echo "invalid interlace method (${interlace})"
+        return 1
+      fi
+    elif [ "$type" = "49484452" ]; then # second IHDR
+      echo "duplicate IHDR chunk"
+      return 1
     elif [ "$type" = "49454e44" ]; then # IEND
       echo "no IDAT chunk before IEND"
       return 1
+    elif [ "$type" = "504c5445" ]; then # PLTE
+      if [ "$len" -eq 0 ] || [ $((len % 3)) -ne 0 ] || [ "$len" -gt 768 ]; then
+        echo "invalid PLTE chunk length ${len}"
+        return 1
+      fi
+    else
+      # Critical chunks (bit 5 of the first type byte clear = uppercase) other
+      # than IHDR/PLTE/IDAT/IEND are unknown; the png crate refuses them too.
+      # Unknown *ancillary* chunks are skipped, matching the crate.
+      first_byte=$((16#${type:0:2}))
+      if [ $((first_byte & 32)) -eq 0 ]; then
+        echo "unknown critical chunk (type 0x${type})"
+        return 1
+      fi
     fi
     pos=$end
   done

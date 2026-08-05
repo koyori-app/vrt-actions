@@ -61,6 +61,34 @@ mkdir -p "$zero"
 write_png_dims "$zero/zero.png" 0 100
 expect_reject "rejects zero width" "$zero" "must be between 1 and 10000"
 
+# --- Reject: CRC-valid but semantically invalid IHDR / chunk layout. ----------
+# The png crate the server uses rejects all of these before reaching IDAT.
+semantic_case() { # LABEL FRAGMENT ARGS-for-write_png_dims...
+  local label="$1" frag="$2"
+  shift 2
+  local d="$tmp/sem-$((sem_case_n += 1))"
+  mkdir -p "$d"
+  write_png_dims "$d/x.png" "$@"
+  expect_reject "$label" "$d" "$frag"
+}
+sem_case_n=0
+semantic_case "rejects undefined color type" "color type" 10 10 8 5 0 0 0
+semantic_case "rejects invalid bit depth for color type" "color type" 10 10 3 0 0 0 0
+semantic_case "rejects nonzero compression method" "compression/filter" 10 10 8 6 1 0 0
+semantic_case "rejects nonzero filter method" "compression/filter" 10 10 8 6 0 1 0
+semantic_case "rejects invalid interlace method" "interlace" 10 10 8 6 0 0 2
+semantic_case "rejects duplicate IHDR" "duplicate IHDR" 10 10 8 6 0 0 0 IHDR
+semantic_case "rejects unknown critical chunk" "unknown critical" 10 10 8 6 0 0 0 ABCD
+
+# --- Accept: Adam7 interlace and unknown ancillary chunks are legal. -----------
+ok_edge="$tmp/ok-edge"
+mkdir -p "$ok_edge"
+write_png_dims "$ok_edge/adam7.png" 10 10 8 6 0 0 1
+write_png_dims "$ok_edge/ancillary.png" 10 10 8 6 0 0 0 abCD
+out="$(DIR="$ok_edge" bash scripts/collect-pngs.sh)"
+assert_contains "$out" "adam7" "accepts Adam7 interlace"
+assert_contains "$out" "ancillary" "accepts unknown ancillary chunk"
+
 # --- Reject: valid signature + dimensions, but truncated. ---------------------
 # The old 24-byte header check accepted both of these; the server's PNG parser
 # (which walks every chunk up to the first IDAT, CRCs included) does not.
