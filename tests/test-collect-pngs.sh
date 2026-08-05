@@ -80,29 +80,64 @@ semantic_case "rejects invalid interlace method" "interlace" 10 10 8 6 0 0 2
 semantic_case "rejects duplicate IHDR" "duplicate IHDR" 10 10 8 6 0 0 0 IHDR
 semantic_case "rejects unknown critical chunk" "unknown critical" 10 10 8 6 0 0 0 ABCD
 semantic_case "rejects duplicate PLTE" "duplicate PLTE" 10 10 8 6 0 0 0 "PLTE:000000,PLTE:000000"
+# PLTE length must be in 3..=768; divisibility by 3 is NOT required (the png
+# crate only range-checks the length in start_chunk).
+semantic_case "rejects empty PLTE" "PLTE chunk length" 10 10 8 6 0 0 0 "PLTE:0000"
+semantic_case "rejects oversized PLTE" "PLTE chunk length" 10 10 8 6 0 0 0 \
+  "PLTE:$(printf '000000%.0s' $(seq 1 257))"
+semantic_case "rejects PLTE with bad CRC" "CRC mismatch" 10 10 8 6 0 0 0 "PLTE:010203:badcrc"
 # fcTL data layout: seq(4) w(4) h(4) x(4) y(4) delay_num(2) delay_den(2)
 # dispose(1) blend(1) = 26 bytes. All CRCs are valid; only semantics differ.
 semantic_case "rejects fcTL with bad length" "fcTL chunk length" 10 10 8 6 0 0 0 "fcTL:00000000"
-semantic_case "rejects fcTL with nonzero sequence" "sequence number 0" 10 10 8 6 0 0 0 \
+# The length check runs before the CRC check, so a bad CRC does not save it.
+semantic_case "rejects fcTL with bad length and bad CRC" "fcTL chunk length" 10 10 8 6 0 0 0 \
+  "fcTL:00000000:badcrc"
+semantic_case "rejects fcTL with nonzero sequence" "sequence number" 10 10 8 6 0 0 0 \
   "fcTL:000000010000000a0000000a0000000000000000000100640000"
-semantic_case "rejects fcTL frame outside image" "does not fit" 10 10 8 6 0 0 0 \
+semantic_case "rejects two fcTL repeating sequence 0" "sequence number" 10 10 8 6 0 0 0 \
+  "fcTL:000000000000000a0000000a0000000000000000000100640000,fcTL:000000000000000a0000000a0000000000000000000100640000"
+# The pre-IDAT fcTL describes the default image: the crate demands x/y = 0 and
+# the exact IHDR dimensions (validate_default_image), not merely "fits inside".
+semantic_case "rejects fcTL frame larger than image" "must cover the full" 10 10 8 6 0 0 0 \
   "fcTL:000000000000000b0000000a0000000000000000000100640000"
+semantic_case "rejects fcTL frame smaller than image" "must cover the full" 10 10 8 6 0 0 0 \
+  "fcTL:0000000000000005000000050000000000000000000100640000"
 semantic_case "rejects fcTL with invalid blend op" "dispose/blend" 10 10 8 6 0 0 0 \
   "fcTL:000000000000000a0000000a0000000000000000000100640002"
-semantic_case "rejects duplicate fcTL" "duplicate fcTL" 10 10 8 6 0 0 0 \
-  "fcTL:000000000000000a0000000a0000000000000000000100640000,fcTL:000000000000000a0000000a0000000000000000000100640000"
 
-# --- Accept: Adam7 interlace and unknown ancillary chunks are legal. -----------
+# --- Accept: everything the server-side png crate treats as benign. ------------
+# Ancillary chunks other than fcTL are never fatal to the crate's read_info:
+# semantic garbage becomes BadAncillaryChunk and a bad CRC skips the chunk
+# (skip_ancillary_crc_failures defaults to true). Rejecting these locally
+# would fail builds the server would have accepted.
 ok_edge="$tmp/ok-edge"
 mkdir -p "$ok_edge"
 write_png_dims "$ok_edge/adam7.png" 10 10 8 6 0 0 1
 write_png_dims "$ok_edge/ancillary.png" 10 10 8 6 0 0 0 abCD
 write_png_dims "$ok_edge/plte-fctl.png" 10 10 8 6 0 0 0 \
   "PLTE:000000,fcTL:000000000000000a0000000a0000000000000000000100640000"
+write_png_dims "$ok_edge/plte-len4.png" 10 10 8 6 0 0 0 "PLTE:01020304"
+write_png_dims "$ok_edge/trns-rgba.png" 10 10 8 6 0 0 0 "tRNS:000100020003"
+write_png_dims "$ok_edge/trns-short-gray.png" 10 10 8 0 0 0 0 "tRNS:07"
+write_png_dims "$ok_edge/sbit-bad.png" 10 10 8 6 0 0 0 "sBIT:0808"
+write_png_dims "$ok_edge/actl-zero-frames.png" 10 10 8 6 0 0 0 "acTL:0000000000000000"
+write_png_dims "$ok_edge/badcrc-ancillary.png" 10 10 8 6 0 0 0 "gAMA:0000b18f:badcrc"
+write_png_dims "$ok_edge/badcrc-bad-fctl.png" 10 10 8 6 0 0 0 \
+  "fcTL:0000000100000002000000020000000000000000000100640000:badcrc"
+write_png_dims "$ok_edge/two-fctl-in-order.png" 10 10 8 6 0 0 0 \
+  "fcTL:000000000000000a0000000a0000000000000000000100640000,fcTL:000000010000000a0000000a0000000000000000000100640000"
 out="$(DIR="$ok_edge" bash scripts/collect-pngs.sh)"
 assert_contains "$out" "adam7" "accepts Adam7 interlace"
 assert_contains "$out" "ancillary" "accepts unknown ancillary chunk"
 assert_contains "$out" "plte-fctl" "accepts single valid PLTE and fcTL"
+assert_contains "$out" "plte-len4" "accepts PLTE length not divisible by 3"
+assert_contains "$out" "trns-rgba" "accepts tRNS on an alpha color type"
+assert_contains "$out" "trns-short-gray" "accepts short grayscale tRNS"
+assert_contains "$out" "sbit-bad" "accepts sBIT with wrong length"
+assert_contains "$out" "actl-zero-frames" "accepts acTL with zero frames"
+assert_contains "$out" "badcrc-ancillary" "accepts ancillary chunk with bad CRC"
+assert_contains "$out" "badcrc-bad-fctl" "accepts invalid fcTL hidden by a bad CRC"
+assert_contains "$out" "two-fctl-in-order" "accepts fcTL chunks in sequence order"
 
 # --- Reject: valid signature + dimensions, but truncated. ---------------------
 # The old 24-byte header check accepted both of these; the server's PNG parser
