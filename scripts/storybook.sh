@@ -30,9 +30,11 @@ resolve_cli_tag() {
   local api="${GITHUB_API_URL:-https://api.github.com}/repos/${VRT_REPO}/releases"
   local -a auth=()
   # トークンがあれば認証ヘッダを付ける(未認証は 60回/時/IP でレート制限に当たりやすい)。
-  # フォークからの PR 等でトークンが空文字の場合は、ヘッダを付けず従来どおり未認証で試みる。
-  if [ -n "${GITHUB_TOKEN:-}" ]; then
-    auth=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+  # ヘッダは init_github_auth_config が書いた mode 600 の curl config 経由で渡す。
+  # `-H` の argv に載せると実行中に ps や /proc/*/cmdline からトークンが読めるため。
+  # フォークからの PR 等でトークンが空文字の場合は config が無く、従来どおり未認証で試みる。
+  if [ -n "${GH_AUTH_CONFIG:-}" ]; then
+    auth=(--config "$GH_AUTH_CONFIG")
   fi
 
   # Releases API は既定 30 件/ページしか返さない。このリポジトリにはバックエンド
@@ -67,6 +69,22 @@ resolve_cli_tag() {
   done
   # 2000 件を見ても cli-v* が無いのは異常事態。無限ループよりは明示的に死ぬ。
   die "gave up searching for a stable 'cli-v*' release in ${VRT_REPO} after 20 pages. Pin a tag with cli-version, e.g. cli-version: cli-v0.1.0."
+}
+
+# init_github_auth_config writes the GitHub API Authorization header to a
+# mode-600 curl config file (GH_AUTH_CONFIG) and registers its cleanup.
+# VRT API 用の AUTH_CONFIG とは別ファイルにし、GitHub API へのリクエスト
+# (resolve_cli_tag) にだけ渡す。トークンが無ければ空のままにして未認証で進む。
+# resolve_cli_tag はコマンド置換のサブシェルで走り EXIT trap を継承できないので、
+# 親シェル (run_storybook) から呼ぶこと。
+init_github_auth_config() {
+  GH_AUTH_CONFIG=""
+  if [ -n "${GITHUB_TOKEN:-}" ]; then
+    GH_AUTH_CONFIG="$(mktemp)"
+    chmod 600 "$GH_AUTH_CONFIG"
+    printf 'header = "Authorization: Bearer %s"\n' "$GITHUB_TOKEN" >"$GH_AUTH_CONFIG"
+    register_tmp_cleanup "$GH_AUTH_CONFIG"
+  fi
 }
 
 # detect_target echoes the release target triple for the current runner.
@@ -129,6 +147,7 @@ run_storybook() {
   [ -f "$DIR/index.json" ] || die "storybook directory '${DIR}' has no index.json. Point 'dir' at a built Storybook (storybook-static)."
 
   # 2: fetch and verify the CLI.
+  init_github_auth_config
   local vrt
   vrt="$(download_cli)"
 

@@ -17,7 +17,7 @@ trap '[ -n "${SERVER_PID:-}" ] && kill "$SERVER_PID" 2>/dev/null; rm -rf "$tmp"'
 # start_server RELEASES_FILE — sets SERVER_PID and PORT.
 start_server() {
   : >"$tmp/port"
-  RELEASES_FILE="$1" python3 tests/fake_server.py \
+  RELEASES_FILE="$1" AUTH_LOG="${AUTH_LOG:-}" python3 tests/fake_server.py \
     >"$tmp/port" 2>"$tmp/server.err" &
   SERVER_PID=$!
   local n=0
@@ -95,4 +95,28 @@ start_server "$tmp/no-cli.json"
 rc="$(run_resolve latest)"
 [ "$rc" -ne 0 ] || fail "expected failure when no stable cli-v* release exists"
 assert_contains "$(cat "$tmp/resolve.err")" "no stable 'cli-v*' release" "not-found dies with guidance"
+stop_server
+
+# --- Case 4: GITHUB_TOKEN reaches the API via a mode-600 curl config file, ----
+# --- never via curl's argv. ----------------------------------------------------
+: >"$tmp/auth.log"
+AUTH_LOG="$tmp/auth.log" start_server "$tmp/pages.json"
+rc=0
+# shellcheck disable=SC2016  # the inner script expands in the child shell
+env -i PATH="$PATH" \
+  GITHUB_API_URL="http://127.0.0.1:${PORT}" \
+  bash -c '
+    set -euo pipefail
+    . scripts/lib.sh
+    . scripts/storybook.sh
+    CLI_VERSION="latest"
+    GITHUB_TOKEN="tok-secret-123"
+    init_github_auth_config
+    perms="$(ls -l "$GH_AUTH_CONFIG" | cut -c1-10)"
+    [ "$perms" = "-rw-------" ] || { echo "bad config perms: $perms" >&2; exit 9; }
+    resolve_cli_tag
+  ' >"$tmp/resolve.out" 2>"$tmp/resolve.err" || rc=$?
+[ "$rc" -eq 0 ] || { cat "$tmp/resolve.err" >&2; fail "authenticated resolve failed: rc=$rc"; }
+assert_eq "cli-v0.2.0" "$(cat "$tmp/resolve.out")" "authenticated resolve picks the stable tag"
+assert_contains "$(cat "$tmp/auth.log")" "Bearer tok-secret-123" "server received the bearer token"
 stop_server

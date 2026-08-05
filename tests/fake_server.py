@@ -26,6 +26,9 @@ BUILD_ID = "00000000-0000-4000-8000-000000000001"
 # Optional: a JSON file containing an array of pages (each an array of GitHub
 # release objects). Enables GET /repos/<owner>/<repo>/releases with paging.
 RELEASES_FILE = os.environ.get("RELEASES_FILE")
+# Optional: append each releases request's Authorization header (or an empty
+# line when absent) to this file, so tests can assert how the token was sent.
+AUTH_LOG = os.environ.get("AUTH_LOG")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -83,6 +86,9 @@ class Handler(BaseHTTPRequestHandler):
         if RELEASES_FILE and re.fullmatch(
             r"/repos/[^/]+/[^/]+/releases", parsed.path
         ):
+            if AUTH_LOG:
+                with open(AUTH_LOG, "a") as f:
+                    f.write((self.headers.get("Authorization") or "") + "\n")
             with open(RELEASES_FILE) as f:
                 pages = json.load(f)
             page = int(parse_qs(parsed.query).get("page", ["1"])[0])
