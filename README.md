@@ -1,9 +1,10 @@
 # VRT Actions
 
-> **開発状況:** この action はまだ実装されておらず、この README は入出力の設計を先に定めるために書かれています。現時点で `koyori-app/vrt-actions` を `uses:` に指定しても動作しません。
-
 VRT Actions は、CI から [VRT](https://github.com/koyori-app/vrt) へ画像または Storybook を送るための GitHub Action です。
-実装後は、プロジェクト側の撮影方法を変えずに `uses:` 一行で VRT のビルドを作成し、アップロード、finalize、結果待ちまでを実行できるようにします。
+プロジェクト側の撮影方法を変えずに `uses:` 一行で VRT のビルドを作成し、アップロード、finalize、結果待ちまでを実行します。
+
+この action は composite action として実装されており、ランナー上の `curl` / `jq` / `git` / `tar` だけで動作します。
+`screenshots` モードは VRT の CI REST API を直接呼び出し、`storybook` モードは `koyori-app/vrt` の Release から取得した `vrt` CLI に委譲します。
 
 ## モード
 
@@ -24,7 +25,7 @@ Storybook の直下には `index.json` が必要です。
 
 ## 最小構成
 
-以下は action の実装および `v1` の公開後に有効になる予定の構成です。
+最小構成は次のとおりです（`v1` タグの公開後に `@v1` で参照できます）。
 
 ```yaml
 - uses: koyori-app/vrt-actions@v1
@@ -48,11 +49,17 @@ Storybook の直下には `index.json` が必要です。
 | `stats-json` | いいえ | `<dir>/preview-stats.json` | `only-changed: true` で使う webpack stats JSON のパスです。 |
 | `wait` | いいえ | `true` | 結果が出るまで待ち、VRT の結果を action の終了コードへ反映します。 |
 | `branch` | いいえ | `GITHUB_HEAD_REF` または `GITHUB_REF_NAME` | baseline を解決するブランチ名です。 |
-| `commit` | いいえ | `GITHUB_SHA` | 対象コミットの SHA です。 |
+| `commit` | いいえ | PR の head SHA、なければ `GITHUB_SHA` | 対象コミットの SHA です。 |
+| `cli-version` | いいえ | `latest` | `storybook` モードで使う `vrt` CLI のリリースタグ（例 `cli-v0.1.0`）です。`latest` のときは最新の `cli-v*` タグを解決します。 |
+| `app-url` | いいえ | `url` から末尾の `/api` を除いた値 | `build-url` の組み立てに使う Web UI のベース URL です。 |
+| `github-token` | いいえ | `${{ github.token }}` | `cli-version: latest` の解決で `koyori-app/vrt` の Release 一覧を取得する際に使う GitHub トークンです。未認証だと GitHub API のレート制限（60 回/時/IP）に当たりやすいため既定でワークフロートークンを使います。フォークからの PR などで空になっても未認証で解決を試みます。 |
+
+`commit` の既定値は、`pull_request` イベントでは `github.event.pull_request.head.sha`、それ以外では `GITHUB_SHA` です。
+`pull_request` イベントの `GITHUB_SHA` は GitHub 上に永続しないマージコミットを指すため、コミットステータスを貼れる PR ブランチ上の head SHA を優先します。
 
 `mode` とモード別の `dir` 既定値は action の入力契約です。
-現行の `vrt upload` CLI は Storybook 専用であり、`--mode` フラグはありません。
-実装時は、`screenshots` を既存の CI API、`storybook` を `vrt upload` に振り分けます。
+`vrt upload` CLI は Storybook 専用であり、`--mode` フラグはありません。
+action は `screenshots` を CI REST API、`storybook` を `vrt upload` に振り分けます。
 
 `only-changed` は `storybook` でのみ有効です。
 `screenshots` と組み合わせた場合や、未知の `mode` を指定した場合は、黙って無視せず入力エラーにします。
@@ -68,6 +75,13 @@ Storybook の直下には `index.json` が必要です。
 
 `wait: false` の action 自体は、ビルド作成、アップロード、finalize が受理されれば成功として終了します。
 この場合の `result` は `pending`、`rendering`、`processing` などの途中状態になり得るため、比較結果として扱わないでください。
+
+`build-url` は `{app-url}/t/{tenant}/p/{project}/builds/{number}` の形で組み立てます。
+`app-url` を省略した場合は `url` から末尾の `/api` を除いた値を使います。
+リバースプロキシ構成で API のベースが `https://example.com/api`、Web UI のベースが `https://example.com` になる場合に対応するためです。
+
+`build-url` を含む outputs は、終了コードにかかわらず（差分検出や失敗時も）書き出します。
+`continue-on-error: true` と組み合わせて、後続 step から `build-url` を参照できます。
 
 ## PAT の権限
 
@@ -172,6 +186,11 @@ jobs:
           stats-json: ./storybook-static/preview-stats.json
           wait: true
 ```
+
+`storybook` モードは `vrt` CLI に委譲するため、`--json` 出力に対応した `cli-v0.1.0` 以降の CLI が必要です。
+CLI は `koyori-app/vrt` の Release からランナーの OS / アーキテクチャに合わせてダウンロードし、同じ Release の `.sha256` と照合して転送時の破損を検出します。
+チェックサムは CLI 本体と同じ Release から取得するため、これは転送整合性の確認であり、Release 自体の改竄への対策ではありません（固定値による供給網固定は [#2](https://github.com/koyori-app/vrt-actions/issues/2) で対応予定）。
+使用するタグは `cli-version` で固定できます（既定は最新の `cli-v*`）。
 
 `only-changed` は、変更ファイル、webpack stats、Storybook の `index.json` から影響を受けるストーリーを求めます。
 stats JSON がない、baseline がない、git 履歴が baseline に届かない、または変更が依存グラフ外にある場合は、撮影漏れを避けるため全ストーリー撮影へフォールバックします。
