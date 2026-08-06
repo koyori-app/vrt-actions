@@ -156,6 +156,9 @@ crc32_hex() {
 #     連番にも数えない。CRC の正しい fcTL は sequence が 0 からの連番である
 #     こと、pre-IDAT (デフォルト画像) では x/y=0 かつ幅・高さが IHDR と一致
 #     することが要求される (validate_default_image)。
+#   - fdAT も例外: 小文字始まりだが crate では IDAT と同じデータ chunk の
+#     専用経路で、最初の IDAT より前に現れると長さ・CRC を見る前に致命
+#     (UnexpectedRestartOfDataChunkSequence)。
 # チャンク数と 256 KiB の上限だけはこちら独自の防御 (crate に対応物は無い)。
 png_dimensions() {
   local LC_ALL=C
@@ -284,6 +287,11 @@ png_dimensions() {
         echo "CRC mismatch in chunk at byte ${pos}"
         return 1
       fi
+    elif [ "$type" = "66644154" ]; then # fdAT (APNG frame data)
+      # Ancillary の見た目だが一般 ancillary としては処理されない (関数冒頭の
+      # コメント参照)。CRC が壊れていても救済されない。
+      echo "fdAT chunk before the first IDAT"
+      return 1
     elif [ "$type" = "6663544c" ]; then # fcTL (APNG frame control)
       # Ancillary、だが長さ 26 以外は crate が critical と同じく致命扱いする。
       # 長さ検査は CRC より前 (start_chunk 相当) なので、CRC が壊れていても死ぬ。

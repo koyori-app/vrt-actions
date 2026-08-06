@@ -104,6 +104,13 @@ semantic_case "rejects fcTL frame smaller than image" "must cover the full" 10 1
   "fcTL:0000000000000005000000050000000000000000000100640000"
 semantic_case "rejects fcTL with invalid blend op" "dispose/blend" 10 10 8 6 0 0 0 \
   "fcTL:000000000000000a0000000a0000000000000000000100640002"
+# fdAT looks ancillary (lowercase first letter) but the crate routes it through
+# the IDAT data-chunk path; before the first IDAT it is fatal even with a bad
+# CRC (UnexpectedRestartOfDataChunkSequence, raised before the CRC check).
+semantic_case "rejects fdAT before IDAT" "fdAT chunk before" 10 10 8 6 0 0 0 \
+  "fdAT:00000000010203"
+semantic_case "rejects fdAT before IDAT with bad CRC" "fdAT chunk before" 10 10 8 6 0 0 0 \
+  "fdAT:00000000010203:badcrc"
 
 # --- Accept: everything the server-side png crate treats as benign. ------------
 # Ancillary chunks other than fcTL are never fatal to the crate's read_info:
