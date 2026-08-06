@@ -25,6 +25,7 @@ printf 'url=%s project=%s leak=%s\n' "\$VRT_URL" "\$VRT_PROJECT" "\${LEAKY_SECRE
 echo "some progress log" >&2
 echo "stdout noise before the JSON line"
 cat "$tmp/cli.json"
+exit "\$(cat "$tmp/cli_exit" 2>/dev/null || echo 0)"
 EOF
 chmod +x "$tmp/vrt"
 
@@ -87,3 +88,14 @@ printf '%s\n' 'not json' >"$tmp/cli.json"
 rc="$(run_driver INPUT_WAIT=true)"
 [ "$rc" -ne 0 ] || fail "expected failure when the CLI emits no JSON"
 assert_contains "$(cat "$tmp/driver.err")" "did not emit a JSON result" "non-JSON stdout dies with guidance"
+
+# --- Case 5: wait:false + CLI nonzero exit -> not a success (CODE=2). ---------
+# The CLI printed a JSON line but exited 3 (e.g. the upload partially failed);
+# wait:false must not report success on the exit code alone.
+printf '%s\n' '{"build_id":"b-1","build_number":9,"tenant_slug":"acme","project_slug":"web","status":"processing"}' >"$tmp/cli.json"
+echo 3 >"$tmp/cli_exit"
+rc="$(run_driver INPUT_WAIT=false)"
+[ "$rc" -eq 0 ] || { cat "$tmp/driver.err" >&2; fail "driver failed: rc=$rc"; }
+assert_contains "$(cat "$tmp/driver.out")" "CODE=2 RESULT=processing" \
+  "wait:false with a failing CLI maps to CODE=2"
+rm -f "$tmp/cli_exit"

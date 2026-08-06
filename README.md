@@ -188,7 +188,8 @@ jobs:
 ```
 
 `storybook` モードは `vrt` CLI に委譲するため、`--json` 出力に対応した `cli-v0.1.0` 以降の CLI が必要です。
-CLI は `koyori-app/vrt` の Release からランナーの OS / アーキテクチャに合わせてダウンロードし、`.sha256` で必ずチェックサムを検証します。
+CLI は `koyori-app/vrt` の Release からランナーの OS / アーキテクチャに合わせてダウンロードし、同じ Release の `.sha256` と照合して転送時の破損を検出します。
+チェックサムは CLI 本体と同じ Release から取得するため、これは転送整合性の確認であり、Release 自体の改竄への対策ではありません（固定値による供給網固定は [#2](https://github.com/koyori-app/vrt-actions/issues/2) で対応予定）。
 使用するタグは `cli-version` で固定できます（既定は最新の `cli-v*`）。
 
 `only-changed` は、変更ファイル、webpack stats、Storybook の `index.json` から影響を受けるストーリーを求めます。

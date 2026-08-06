@@ -206,6 +206,13 @@ run_storybook() {
       CODE="$(status_to_exit_code "$RESULT")"
     fi
   else
-    CODE=0
+    # wait:false でも、CLI 自体が失敗した実行(アップロード不能等で非ゼロ終了)を
+    # 成功にはしない。JSON を出力しつつ exit 0 で終えた場合のみ
+    # 「作成・アップロード・finalize 完了」とみなす。
+    if [ "$cli_exit" -ne 0 ]; then
+      CODE=2
+    else
+      CODE=0
+    fi
   fi
 }

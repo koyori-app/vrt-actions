@@ -81,17 +81,26 @@ poll_until_terminal() {
   deadline=$(($(date +%s) + POLL_TIMEOUT_SECONDS))
   st="unknown"
   while :; do
-    # A transient network error / timeout while polling is retried until the
-    # overall deadline; only create/upload/finalize treat it as fatal.
+    # The status GET is idempotent, so transient failures — transport errors
+    # and 5xx responses (proxy hiccups, brief backend restarts) — are retried
+    # until the overall deadline. 4xx responses are permanent and fatal, and
+    # only create/upload/finalize treat transport errors as fatal.
     if try_request GET "$URL/v1/ci/builds/$id"; then
-      require_2xx "Fetching build status"
-      st="$(printf '%s' "$RESP_BODY" | jq -r '.status')"
-      RESULT="$st"
-      if is_terminal_status "$st"; then
-        log "Build ${BUILD_NUMBER} reached terminal status: ${st}."
-        return 0
-      fi
-      log "Build ${BUILD_NUMBER} status: ${st}; waiting ${POLL_INTERVAL_SECONDS}s..."
+      case "$RESP_CODE" in
+        5*)
+          log "Polling got HTTP ${RESP_CODE}; retrying in ${POLL_INTERVAL_SECONDS}s..."
+          ;;
+        *)
+          require_2xx "Fetching build status"
+          st="$(printf '%s' "$RESP_BODY" | jq -r '.status')"
+          RESULT="$st"
+          if is_terminal_status "$st"; then
+            log "Build ${BUILD_NUMBER} reached terminal status: ${st}."
+            return 0
+          fi
+          log "Build ${BUILD_NUMBER} status: ${st}; waiting ${POLL_INTERVAL_SECONDS}s..."
+          ;;
+      esac
     else
       log "Polling failed (network error or timeout); retrying in ${POLL_INTERVAL_SECONDS}s..."
     fi

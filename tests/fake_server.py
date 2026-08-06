@@ -29,6 +29,9 @@ RELEASES_FILE = os.environ.get("RELEASES_FILE")
 # Optional: append each releases request's Authorization header (or an empty
 # line when absent) to this file, so tests can assert how the token was sent.
 AUTH_LOG = os.environ.get("AUTH_LOG")
+# Optional: the FIRST status poll answers with this HTTP code instead of 200,
+# letting tests exercise the transient-5xx retry path of the poll loop.
+FLAKY_POLL_CODE = int(os.environ.get("FLAKY_POLL_CODE", "0"))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -97,6 +100,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == f"/v1/ci/builds/{BUILD_ID}":
             Handler.poll_count += 1
+            if FLAKY_POLL_CODE and Handler.poll_count == 1:
+                self._json(FLAKY_POLL_CODE, {"error": "flaky"})
+                return
             status = FINAL_STATUS if Handler.poll_count >= 2 else "processing"
             self._json(200, {"status": status})
         else:

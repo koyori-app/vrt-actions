@@ -24,9 +24,11 @@ readonly MAX_PNG_BYTES=$((25 * 1024 * 1024))
 readonly MAX_PNG_DIMENSION=10000
 readonly MAX_NAME_BYTES=255
 
-# Polling configuration for `wait: true`.
-readonly POLL_INTERVAL_SECONDS=5
-readonly POLL_TIMEOUT_SECONDS=1800 # 30 minutes.
+# Polling configuration for `wait: true`. The VRT_TEST_* overrides exist so
+# the test suite can shrink the loop to sub-second scale; real workflows must
+# not set them.
+readonly POLL_INTERVAL_SECONDS="${VRT_TEST_POLL_INTERVAL_SECONDS:-5}"
+readonly POLL_TIMEOUT_SECONDS="${VRT_TEST_POLL_TIMEOUT_SECONDS:-1800}" # 30 minutes.
 
 # curl timeouts. Without --max-time a hung request blocks forever and the
 # 30-minute poll deadline is never re-evaluated, so the action never exits.

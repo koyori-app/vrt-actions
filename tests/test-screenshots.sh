@@ -32,7 +32,8 @@ done
 # start_server RECORD_FILE FINAL_STATUS — sets SERVER_PID and PORT.
 start_server() {
   : >"$tmp/port"
-  RECORD_FILE="$1" FINAL_STATUS="$2" python3 tests/fake_server.py \
+  RECORD_FILE="$1" FINAL_STATUS="$2" FLAKY_POLL_CODE="${FLAKY_POLL_CODE:-0}" \
+    python3 tests/fake_server.py \
     >"$tmp/port" 2>"$tmp/server.err" &
   SERVER_PID=$!
   local n=0
@@ -118,4 +119,25 @@ rc="$(run_action "$tmp/gh_output3" INPUT_WAIT=false)"
 [ "$rc" -eq 0 ] || { cat "$tmp/action.log" >&2; fail "expected exit 0 for wait:false, got $rc"; }
 pass "action exits 0 with wait:false"
 assert_eq "0" "$(output_value "$tmp/gh_output3" exit-code)" "exit-code output (wait:false)"
+stop_server
+
+# --- Case 4: a transient 502 on the first status poll is retried, not fatal. --
+FLAKY_POLL_CODE=502 start_server "$tmp/received4.jsonl" passed
+: >"$tmp/gh_output4"
+rc="$(run_action "$tmp/gh_output4" INPUT_WAIT=true VRT_TEST_POLL_INTERVAL_SECONDS=0.2)"
+[ "$rc" -eq 0 ] || { cat "$tmp/action.log" >&2; fail "expected exit 0 despite a 502 poll, got $rc"; }
+pass "action retries a transient 502 while polling"
+assert_eq "passed" "$(output_value "$tmp/gh_output4" result)" "result output (after 502)"
+assert_contains "$(cat "$tmp/action.log")" "HTTP 502" "the 502 retry is logged"
+stop_server
+
+# --- Case 5: poll deadline expires -> exit 2 with outputs written. ------------
+start_server "$tmp/received5.jsonl" processing # never reaches a terminal status
+: >"$tmp/gh_output5"
+rc="$(run_action "$tmp/gh_output5" INPUT_WAIT=true \
+  VRT_TEST_POLL_INTERVAL_SECONDS=0.2 VRT_TEST_POLL_TIMEOUT_SECONDS=1)"
+[ "$rc" -eq 2 ] || { cat "$tmp/action.log" >&2; fail "expected exit 2 on poll timeout, got $rc"; }
+pass "action exits 2 when the poll deadline expires"
+assert_eq "2" "$(output_value "$tmp/gh_output5" exit-code)" "exit-code output (timeout)"
+assert_contains "$(cat "$tmp/action.log")" "timed out after" "the timeout is reported"
 stop_server
