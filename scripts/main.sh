@@ -45,6 +45,11 @@ case "$MODE" in
   storybook) run_storybook ;;
 esac
 
+# 変化検知を緑に倒す入力は、モードに関係なく最後の一箇所で適用する。
+# CLI にも同名の旗はあるが、そちらへ委譲すると screenshots モードと挙動が割れ、
+# 利用者が pin した cli-version にも依存してしまう。
+apply_exit_zero_on_changes
+
 # Persist outputs, then exit with the resolved code (wait:true reflects the VRT
 # result; wait:false is 0 once the build was created, uploaded and finalized).
 write_outputs

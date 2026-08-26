@@ -25,6 +25,8 @@ resolve_inputs() {
   ONLY_CHANGED="${INPUT_ONLY_CHANGED:-false}"
   STATS_JSON="${INPUT_STATS_JSON:-}"
   WAIT="${INPUT_WAIT:-true}"
+  # 空白付きの ' main' を「一致しないブランチ名」として黙って無効化しないよう詰める。
+  EXIT_ZERO_ON_CHANGES="$(trim_whitespace "${INPUT_EXIT_ZERO_ON_CHANGES:-}")"
   CLI_VERSION="${INPUT_CLI_VERSION:-latest}"
   # Token used only to resolve the latest cli-v* release (storybook mode). May be
   # empty on forked PRs where the workflow token is restricted.

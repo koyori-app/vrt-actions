@@ -36,6 +36,15 @@ inputs:
     description: Wait for the result and reflect the VRT result in the action exit code.
     required: false
     default: "true"
+  exit-zero-on-changes:
+    description: >-
+      差分ありで終わったビルド (changes_detected) を成功として扱います。
+      'true' なら常に、ブランチ名 (例 'main') を渡すとそのブランチのときだけ
+      終了コードを 0 にします。差分は人の承認待ちであって壊れてはいないため、
+      チェック一覧の赤を本物の失敗だけに絞れます。
+      失敗したビルド (failed / rejected = 終了コード 2) には効きません。
+    required: false
+    default: ''
   branch:
     description: Branch name used to resolve the baseline. Defaults to GITHUB_HEAD_REF, then GITHUB_REF_NAME.
     required: false
@@ -86,6 +95,7 @@ runs:
         INPUT_ONLY_CHANGED: ${{ inputs.only-changed }}
         INPUT_STATS_JSON: ${{ inputs.stats-json }}
         INPUT_WAIT: ${{ inputs.wait }}
+        INPUT_EXIT_ZERO_ON_CHANGES: ${{ inputs.exit-zero-on-changes }}
         INPUT_BRANCH: ${{ inputs.branch }}
         INPUT_COMMIT: ${{ inputs.commit }}
         INPUT_CLI_VERSION: ${{ inputs.cli-version }}

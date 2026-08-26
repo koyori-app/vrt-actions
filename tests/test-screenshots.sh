@@ -141,3 +141,59 @@ pass "action exits 2 when the poll deadline expires"
 assert_eq "2" "$(output_value "$tmp/gh_output5" exit-code)" "exit-code output (timeout)"
 assert_contains "$(cat "$tmp/action.log")" "timed out after" "the timeout is reported"
 stop_server
+
+# --- Case 6: exit-zero-on-changes greens a changes_detected build. -----------
+# 差分は承認待ちであって失敗ではないので、赤を本物の失敗だけに絞れること。
+# result は書き換えず、差分が出た事実は outputs に残ること。
+start_server "$tmp/received6.jsonl" changes_detected
+: >"$tmp/gh_output6"
+rc="$(run_action "$tmp/gh_output6" INPUT_WAIT=true INPUT_EXIT_ZERO_ON_CHANGES=true)"
+[ "$rc" -eq 0 ] || { cat "$tmp/action.log" >&2; fail "expected exit 0 with exit-zero-on-changes, got $rc"; }
+pass "exit-zero-on-changes:true exits 0 on changes_detected"
+assert_eq "changes_detected" "$(output_value "$tmp/gh_output6" result)" "result stays changes_detected"
+assert_eq "0" "$(output_value "$tmp/gh_output6" exit-code)" "exit-code output is remapped too"
+stop_server
+
+# --- Case 7: a branch value only greens that branch. -------------------------
+start_server "$tmp/received7.jsonl" changes_detected
+: >"$tmp/gh_output7"
+rc="$(run_action "$tmp/gh_output7" INPUT_WAIT=true INPUT_EXIT_ZERO_ON_CHANGES=main)"
+[ "$rc" -eq 0 ] || { cat "$tmp/action.log" >&2; fail "expected exit 0 on the named branch, got $rc"; }
+pass "exit-zero-on-changes:main exits 0 on main"
+stop_server
+
+start_server "$tmp/received8.jsonl" changes_detected
+: >"$tmp/gh_output8"
+rc="$(run_action "$tmp/gh_output8" INPUT_WAIT=true INPUT_EXIT_ZERO_ON_CHANGES=main \
+  GITHUB_REF_NAME=feat/x)"
+[ "$rc" -eq 1 ] || { cat "$tmp/action.log" >&2; fail "expected exit 1 off the named branch, got $rc"; }
+pass "exit-zero-on-changes:main keeps other branches red"
+stop_server
+
+# 部分一致で広がると、意図しない PR まで緑になって入力の意味が消える。
+start_server "$tmp/received9.jsonl" changes_detected
+: >"$tmp/gh_output9"
+rc="$(run_action "$tmp/gh_output9" INPUT_WAIT=true INPUT_EXIT_ZERO_ON_CHANGES=main \
+  GITHUB_REF_NAME=main-2)"
+[ "$rc" -eq 1 ] || { cat "$tmp/action.log" >&2; fail "expected exit 1 on a prefix-sharing branch, got $rc"; }
+pass "exit-zero-on-changes matches the branch exactly"
+stop_server
+
+# --- Case 8: the input never hides a broken build. ---------------------------
+start_server "$tmp/received10.jsonl" failed
+: >"$tmp/gh_output10"
+rc="$(run_action "$tmp/gh_output10" INPUT_WAIT=true INPUT_EXIT_ZERO_ON_CHANGES=true)"
+[ "$rc" -eq 2 ] || { cat "$tmp/action.log" >&2; fail "expected exit 2 for a failed build, got $rc"; }
+pass "exit-zero-on-changes leaves a failed build red"
+assert_eq "2" "$(output_value "$tmp/gh_output10" exit-code)" "exit-code output (failed)"
+stop_server
+
+# --- Case 9: 'false' and whitespace-only values behave like the default. -----
+for value in false "  "; do
+  start_server "$tmp/received11.jsonl" changes_detected
+  : >"$tmp/gh_output11"
+  rc="$(run_action "$tmp/gh_output11" INPUT_WAIT=true INPUT_EXIT_ZERO_ON_CHANGES="$value")"
+  [ "$rc" -eq 1 ] || { cat "$tmp/action.log" >&2; fail "expected exit 1 for exit-zero-on-changes='$value', got $rc"; }
+  pass "exit-zero-on-changes='$value' keeps changes red"
+  stop_server
+done

@@ -354,6 +354,31 @@ status_to_exit_code() {
   esac
 }
 
+# exit_zero_on_changes_applies — true when the exit-zero-on-changes input should
+# green a changes_detected build on the branch being built.
+#   ""/false -> off, true -> always, anything else -> exact branch name.
+# 部分一致にすると 'main' の指定で 'main-2' や 'feature/main' の PR まで
+# 緑になり、旗の意味が消えるので完全一致で照合する。
+exit_zero_on_changes_applies() {
+  case "${EXIT_ZERO_ON_CHANGES:-}" in
+    "" | false) return 1 ;;
+    true) return 0 ;;
+    *) [ "${EXIT_ZERO_ON_CHANGES}" = "${BRANCH:-}" ] ;;
+  esac
+}
+
+# apply_exit_zero_on_changes — remap CODE 1 -> 0 when the input applies.
+#
+# 読み替えるのは変化検知 (1) だけ。壊れたビルド (2) まで緑にすると、この入力が
+# 本物の失敗を隠すことになる。RESULT は書き換えず、差分が出た事実は outputs と
+# ログに残す。
+apply_exit_zero_on_changes() {
+  [ "${CODE:-0}" = "1" ] || return 0
+  exit_zero_on_changes_applies || return 0
+  log "exit-zero-on-changes applies on branch '${BRANCH:-}': reporting success despite result='${RESULT:-}'."
+  CODE=0
+}
+
 # --- Temp-file cleanup ------------------------------------------------------
 # trap EXIT は上書き式なので、複数の場所が個別に trap を張ると先客の削除が
 # 消えてしまう。秘匿情報を書く一時ファイルは必ずここで登録し、単一の trap で

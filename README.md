@@ -48,6 +48,7 @@ Storybook の直下には `index.json` が必要です。
 | `only-changed` | いいえ | `false` | `storybook` 専用です。`true` のとき、変更の影響を受けるストーリーだけをサーバーで撮影します。 |
 | `stats-json` | いいえ | `<dir>/preview-stats.json` | `only-changed: true` で使う webpack stats JSON のパスです。 |
 | `wait` | いいえ | `true` | 結果が出るまで待ち、VRT の結果を action の終了コードへ反映します。 |
+| `exit-zero-on-changes` | いいえ | （空） | 差分ありで終わったビルド（`changes_detected`）を成功として扱います。`true` なら常に、ブランチ名（例 `main`）を渡すとそのブランチのときだけ終了コードを 0 にします。ブランチ名は完全一致です。失敗したビルド（`failed` / `rejected` = 終了コード 2）には効きません。 |
 | `branch` | いいえ | `GITHUB_HEAD_REF` または `GITHUB_REF_NAME` | baseline を解決するブランチ名です。 |
 | `commit` | いいえ | PR の head SHA、なければ `GITHUB_SHA` | 対象コミットの SHA です。 |
 | `cli-version` | いいえ | `latest` | `storybook` モードで使う `vrt` CLI のリリースタグ（例 `cli-v0.1.0`）です。`latest` のときは最新の `cli-v*` タグを解決します。 |
@@ -62,6 +63,16 @@ Storybook の直下には `index.json` が必要です。
 新しいビルドで更新されます）。`storybook` モードでこれが働くのは `cli-version` が
 `cli-v0.1.2` 以降のときだけで、それより古い CLI に固定している場合はコメントを
 省いて警告をログに出します（ビルド自体は従来どおり通ります）。
+
+`exit-zero-on-changes` は差分の出たビルドを緑にする入力です。
+差分は人の承認待ちであって壊れてはいないので、チェック一覧の赤を本物の失敗だけに絞れます。
+`exit-zero-on-changes: main` と書けば main では緑、PR では赤のままにできます。
+読み替えるのは終了コード 1 だけで、`result` 出力は `changes_detected` のまま残ります。
+失敗したビルド（終了コード 2）には効きません——そこまで隠すと、この入力が本物の失敗を見えなくするためです。
+
+`vrt` CLI にも同名の `--exit-zero-on-changes` がありますが、action は CLI へ委譲せず自分で読み替えます。
+委譲すると `screenshots` モードと挙動が割れ、利用者が `cli-version` に固定したバージョンにも依存してしまうためです。
+どの `cli-version` を固定していてもこの入力は同じように効きます。
 
 `mode` とモード別の `dir` 既定値は action の入力契約です。
 `vrt upload` CLI は Storybook 専用であり、`--mode` フラグはありません。
