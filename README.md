@@ -57,6 +57,12 @@ Storybook の直下には `index.json` が必要です。
 `commit` の既定値は、`pull_request` イベントでは `github.event.pull_request.head.sha`、それ以外では `GITHUB_SHA` です。
 `pull_request` イベントの `GITHUB_SHA` は GitHub 上に永続しないマージコミットを指すため、コミットステータスを貼れる PR ブランチ上の head SHA を優先します。
 
+`pull_request` イベントでは PR 番号もビルドへ添えます。VRT はこれを見てレビュー UI
+へのリンクを PR コメントとして掲示します（同じ PR のコメントは 1 件にまとまり、
+新しいビルドで更新されます）。`storybook` モードでこれが働くのは `cli-version` が
+`cli-v0.1.2` 以降のときだけで、それより古い CLI に固定している場合はコメントを
+省いて警告をログに出します（ビルド自体は従来どおり通ります）。
+
 `mode` とモード別の `dir` 既定値は action の入力契約です。
 `vrt upload` CLI は Storybook 専用であり、`--mode` フラグはありません。
 action は `screenshots` を CI REST API、`storybook` を `vrt upload` に振り分けます。

@@ -162,6 +162,15 @@ run_storybook() {
   if [ "$WAIT" = "true" ]; then
     args+=(--wait)
   fi
+  # PR 番号はサーバー側の PR コメント掲示に必須。--pull-request は cli-v0.1.2 で
+  # 入ったので、それより古い CLI に固定している利用者を壊さないよう help で確かめる。
+  if [[ "${PR_NUMBER:-}" =~ ^[0-9]+$ ]] && [ "${PR_NUMBER}" -gt 0 ]; then
+    if "$vrt" upload --help 2>/dev/null | grep -q -- '--pull-request'; then
+      args+=(--pull-request "${PR_NUMBER}")
+    else
+      log "This vrt CLI has no --pull-request; VRT will not comment on the PR. Set cli-version to cli-v0.1.2 or newer."
+    fi
+  fi
 
   # 4: run the CLI. stdout carries a single JSON line; logs go to stderr.
   # env -i で環境を PATH と VRT_* だけに絞る。実行時に取得した外部バイナリへ、

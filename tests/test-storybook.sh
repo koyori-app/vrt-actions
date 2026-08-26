@@ -20,6 +20,15 @@ echo '{}' >"$sb/index.json"
 # set in the driver environment and must NOT survive into the CLI.
 cat >"$tmp/vrt" <<EOF
 #!/usr/bin/env bash
+# Capability probe: run_storybook asks \`upload --help\` whether --pull-request
+# exists. Answer it without recording argv, so the assertions below still see
+# the real invocation.
+if [ "\$1" = "upload" ] && [ "\$2" = "--help" ]; then
+  if [ -f "$tmp/cli_supports_pr" ]; then
+    echo "      --pull-request <PULL_REQUEST>"
+  fi
+  exit 0
+fi
 printf '%s\n' "\$*" >"$tmp/args"
 printf 'url=%s project=%s leak=%s\n' "\$VRT_URL" "\$VRT_PROJECT" "\${LEAKY_SECRET:-none}" >>"$tmp/args"
 echo "some progress log" >&2
@@ -99,3 +108,38 @@ rc="$(run_driver INPUT_WAIT=false)"
 assert_contains "$(cat "$tmp/driver.out")" "CODE=2 RESULT=processing" \
   "wait:false with a failing CLI maps to CODE=2"
 rm -f "$tmp/cli_exit"
+
+# --- Case 6: PR builds pass the number through to a CLI that supports it. ----
+# Without it the server never posts the PR comment (it only comments when the
+# build carries pull_request_number).
+printf '%s\n' '{"build_id":"b-1","build_number":9,"tenant_slug":"acme","project_slug":"web","status":"passed","exit_code":0}' >"$tmp/cli.json"
+touch "$tmp/cli_supports_pr"
+rc="$(run_driver INPUT_WAIT=true PR_NUMBER=123)"
+[ "$rc" -eq 0 ] || { cat "$tmp/driver.err" >&2; fail "driver failed: rc=$rc"; }
+assert_contains "$(cat "$FAKE_VRT_ARGS_FILE")" "--pull-request 123" \
+  "a PR build passes --pull-request"
+
+# --- Case 7: an older pinned CLI is warned about, not broken. ----------------
+rm -f "$tmp/cli_supports_pr"
+rc="$(run_driver INPUT_WAIT=true PR_NUMBER=123)"
+[ "$rc" -eq 0 ] || { cat "$tmp/driver.err" >&2; fail "driver failed: rc=$rc"; }
+args="$(cat "$FAKE_VRT_ARGS_FILE")"
+case "$args" in
+  *"--pull-request"*) fail "a CLI without --pull-request must not receive it: $args" ;;
+  *) pass "an older CLI keeps working without --pull-request" ;;
+esac
+assert_contains "$(cat "$tmp/driver.err")" "cli-v0.1.2 or newer" \
+  "an older CLI is told how to get PR comments"
+
+# --- Case 8: non-PR and malformed numbers stay off the command line. ---------
+touch "$tmp/cli_supports_pr"
+for bogus in "" "0" "abc" "12x"; do
+  rc="$(run_driver INPUT_WAIT=true PR_NUMBER="$bogus")"
+  [ "$rc" -eq 0 ] || { cat "$tmp/driver.err" >&2; fail "driver failed for PR_NUMBER='$bogus': rc=$rc"; }
+  args="$(cat "$FAKE_VRT_ARGS_FILE")"
+  case "$args" in
+    *"--pull-request"*) fail "PR_NUMBER='$bogus' must not pass --pull-request: $args" ;;
+    *) pass "PR_NUMBER='$bogus' omits --pull-request" ;;
+  esac
+done
+rm -f "$tmp/cli_supports_pr"
