@@ -354,16 +354,30 @@ status_to_exit_code() {
   esac
 }
 
+# is_pull_request_build — true when this run is building a pull request.
+#
+# BRANCH は PR では GITHUB_HEAD_REF、つまり **PR を出した側が名乗ったブランチ名**
+# になる。ブランチ指定モードをここに効かせると、`main` という名前のブランチから
+# 出された PR が緑になり、入力の意味（main は緑・PR は赤）が裏返る。
+# PR 番号（action.yml が github.event.pull_request.number から渡す）が第一の判定材料で、
+# 番号が空になる経路のために イベント名でも判定する。
+is_pull_request_build() {
+  case "${GITHUB_EVENT_NAME:-}" in
+    pull_request | pull_request_target) return 0 ;;
+  esac
+  [[ "${PR_NUMBER:-}" =~ ^[0-9]+$ ]] && [ "${PR_NUMBER}" -gt 0 ]
+}
+
 # exit_zero_on_changes_applies — true when the exit-zero-on-changes input should
 # green a changes_detected build on the branch being built.
-#   ""/false -> off, true -> always, anything else -> exact branch name.
+#   ""/false -> off, true -> always, anything else -> exact branch name (never on PRs).
 # 部分一致にすると 'main' の指定で 'main-2' や 'feature/main' の PR まで
 # 緑になり、旗の意味が消えるので完全一致で照合する。
 exit_zero_on_changes_applies() {
   case "${EXIT_ZERO_ON_CHANGES:-}" in
     "" | false) return 1 ;;
     true) return 0 ;;
-    *) [ "${EXIT_ZERO_ON_CHANGES}" = "${BRANCH:-}" ] ;;
+    *) ! is_pull_request_build && [ "${EXIT_ZERO_ON_CHANGES}" = "${BRANCH:-}" ] ;;
   esac
 }
 
@@ -374,9 +388,21 @@ exit_zero_on_changes_applies() {
 # ログに残す。
 apply_exit_zero_on_changes() {
   [ "${CODE:-0}" = "1" ] || return 0
-  exit_zero_on_changes_applies || return 0
-  log "exit-zero-on-changes applies on branch '${BRANCH:-}': reporting success despite result='${RESULT:-}'."
-  CODE=0
+  if exit_zero_on_changes_applies; then
+    log "exit-zero-on-changes applies on branch '${BRANCH:-}': reporting success despite result='${RESULT:-}'."
+    CODE=0
+    return 0
+  fi
+  # 効かなかった理由が「PR ビルドだから」のときは黙って赤にせず説明する。
+  # 設定した本人からは「main を指定したのに緑にならない」としか見えないため。
+  case "${EXIT_ZERO_ON_CHANGES:-}" in
+    "" | false | true) ;;
+    *)
+      if is_pull_request_build; then
+        log "exit-zero-on-changes='${EXIT_ZERO_ON_CHANGES}' was read as a branch name, but branch-restricted mode does not apply to pull request builds, so changes_detected stays red (pass 'true' to intentionally always report success)."
+      fi
+      ;;
+  esac
 }
 
 # --- Temp-file cleanup ------------------------------------------------------

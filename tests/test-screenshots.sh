@@ -179,6 +179,39 @@ rc="$(run_action "$tmp/gh_output9" INPUT_WAIT=true INPUT_EXIT_ZERO_ON_CHANGES=ma
 pass "exit-zero-on-changes matches the branch exactly"
 stop_server
 
+# PR ビルドではブランチ指定モードを効かせない。PR で照合される branch は
+# GITHUB_HEAD_REF——PR を出した側が名乗ったブランチ名なので、ここで照合すると
+# 'main' と名付けた PR ブランチまで緑になり、設定の意味が裏返る。
+start_server "$tmp/received9b.jsonl" changes_detected
+: >"$tmp/gh_output9b"
+rc="$(run_action "$tmp/gh_output9b" INPUT_WAIT=true INPUT_EXIT_ZERO_ON_CHANGES=main \
+  GITHUB_HEAD_REF=main GITHUB_EVENT_NAME=pull_request PR_NUMBER=42)"
+[ "$rc" -eq 1 ] || { cat "$tmp/action.log" >&2; fail "expected exit 1 for a PR branch named main, got $rc"; }
+pass "exit-zero-on-changes:main keeps a PR named main red"
+grep -q "does not apply to pull request builds" "$tmp/action.log" ||
+  { cat "$tmp/action.log" >&2; fail "the skipped branch mode must explain itself"; }
+pass "the PR-context skip explains itself in the log"
+stop_server
+
+# PR 番号だけが渡る経路（イベント名が無い composite 実行）でも同じ扱いにする。
+start_server "$tmp/received9c.jsonl" changes_detected
+: >"$tmp/gh_output9c"
+rc="$(run_action "$tmp/gh_output9c" INPUT_WAIT=true INPUT_EXIT_ZERO_ON_CHANGES=main \
+  GITHUB_HEAD_REF=main PR_NUMBER=42)"
+[ "$rc" -eq 1 ] || { cat "$tmp/action.log" >&2; fail "expected exit 1 when only PR_NUMBER marks the PR, got $rc"; }
+pass "a bare PR number is enough to disable branch-restricted mode"
+stop_server
+
+# 'true' は明示的な意思表示なので PR でも効かせる。ここまで塞ぐと、
+# PR も含めて常に緑にする手段が無くなる。
+start_server "$tmp/received9d.jsonl" changes_detected
+: >"$tmp/gh_output9d"
+rc="$(run_action "$tmp/gh_output9d" INPUT_WAIT=true INPUT_EXIT_ZERO_ON_CHANGES=true \
+  GITHUB_HEAD_REF=feat/x GITHUB_EVENT_NAME=pull_request PR_NUMBER=42)"
+[ "$rc" -eq 0 ] || { cat "$tmp/action.log" >&2; fail "expected exit 0 for exit-zero-on-changes:true on a PR, got $rc"; }
+pass "exit-zero-on-changes:true still greens a PR"
+stop_server
+
 # --- Case 8: the input never hides a broken build. ---------------------------
 start_server "$tmp/received10.jsonl" failed
 : >"$tmp/gh_output10"

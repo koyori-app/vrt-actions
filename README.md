@@ -48,7 +48,7 @@ Storybook の直下には `index.json` が必要です。
 | `only-changed` | いいえ | `false` | `storybook` 専用です。`true` のとき、変更の影響を受けるストーリーだけをサーバーで撮影します。 |
 | `stats-json` | いいえ | `<dir>/preview-stats.json` | `only-changed: true` で使う webpack stats JSON のパスです。 |
 | `wait` | いいえ | `true` | 結果が出るまで待ち、VRT の結果を action の終了コードへ反映します。 |
-| `exit-zero-on-changes` | いいえ | （空） | 差分ありで終わったビルド（`changes_detected`）を成功として扱います。`true` なら常に、ブランチ名（例 `main`）を渡すとそのブランチのときだけ終了コードを 0 にします。ブランチ名は完全一致です。失敗したビルド（`failed` / `rejected` = 終了コード 2）には効きません。 |
+| `exit-zero-on-changes` | いいえ | （空） | 差分ありで終わったビルド（`changes_detected`）を成功として扱います。`true` なら常に、ブランチ名（例 `main`）を渡すとそのブランチのときだけ終了コードを 0 にします。ブランチ名は完全一致で、`pull_request` のビルドには効きません。失敗したビルド（`failed` / `rejected` = 終了コード 2）には効きません。 |
 | `branch` | いいえ | `GITHUB_HEAD_REF` または `GITHUB_REF_NAME` | baseline を解決するブランチ名です。 |
 | `commit` | いいえ | PR の head SHA、なければ `GITHUB_SHA` | 対象コミットの SHA です。 |
 | `cli-version` | いいえ | `latest` | `storybook` モードで使う `vrt` CLI のリリースタグ（例 `cli-v0.1.0`）です。`latest` のときは最新の `cli-v*` タグを解決します。 |
@@ -67,6 +67,14 @@ Storybook の直下には `index.json` が必要です。
 `exit-zero-on-changes` は差分の出たビルドを緑にする入力です。
 差分は人の承認待ちであって壊れてはいないので、チェック一覧の赤を本物の失敗だけに絞れます。
 `exit-zero-on-changes: main` と書けば main では緑、PR では赤のままにできます。
+
+ブランチ名を渡したときは `pull_request` のビルドでは**必ず**効きません。
+PR で照合される `branch` は `GITHUB_HEAD_REF`、つまり PR を出した側が名乗った
+ブランチ名なので、ここで照合すると `main` という名前のブランチから出された PR まで
+緑になり、「main は緑・PR は赤」という設定の意味が裏返るためです。
+PR も含めて常に緑にしたいときは `true` を明示します。
+指定したのに効かなかったときは、その理由をログに出します。
+
 読み替えるのは終了コード 1 だけで、`result` 出力は `changes_detected` のまま残ります。
 失敗したビルド（終了コード 2）には効きません——そこまで隠すと、この入力が本物の失敗を見えなくするためです。
 
