@@ -29,6 +29,8 @@ RELEASES_FILE = os.environ.get("RELEASES_FILE")
 # Optional: append each releases request's Authorization header (or an empty
 # line when absent) to this file, so tests can assert how the token was sent.
 AUTH_LOG = os.environ.get("AUTH_LOG")
+# Storybook の結合試験が生成した CLI の配布物だけを返す。
+CLI_ASSET_DIR = os.environ.get("CLI_ASSET_DIR")
 # Optional: the FIRST status poll answers with this HTTP code instead of 200,
 # letting tests exercise the transient-5xx retry path of the poll loop.
 FLAKY_POLL_CODE = int(os.environ.get("FLAKY_POLL_CODE", "0"))
@@ -98,6 +100,17 @@ class Handler(BaseHTTPRequestHandler):
             body = pages[page - 1] if 1 <= page <= len(pages) else []
             self._json(200, body)
             return
+        if CLI_ASSET_DIR and re.fullmatch(
+            r"/test-cli-assets/vrt-[a-zA-Z0-9_-]+\.tar\.gz(?:\.sha256)?", parsed.path
+        ):
+            name = parsed.path.rsplit("/", 1)[1]
+            with open(os.path.join(CLI_ASSET_DIR, name), "rb") as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path == f"/v1/ci/builds/{BUILD_ID}":
             Handler.poll_count += 1
             if FLAKY_POLL_CODE and Handler.poll_count == 1:
@@ -123,7 +136,15 @@ class QuietHTTPServer(HTTPServer):
 def main():
     server = QuietHTTPServer(("127.0.0.1", 0), Handler)
     print(server.server_address[1], flush=True)
-    server.serve_forever()
+    stop_file = os.environ.get("STOP_FILE")
+    if stop_file:
+        # 結合試験では停止の合図を受けて自分で終了する。
+        server.timeout = 0.1
+        while not os.path.exists(stop_file):
+            server.handle_request()
+        server.server_close()
+    else:
+        server.serve_forever()
 
 
 if __name__ == "__main__":

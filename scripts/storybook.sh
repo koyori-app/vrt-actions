@@ -7,6 +7,9 @@
 # which reads the globals assigned below (CODE, RESULT, BUILD_*) after dispatch.
 set -euo pipefail
 
+# shellcheck source=scripts/selection.sh
+. "$(dirname "${BASH_SOURCE[0]}")/selection.sh"
+
 readonly VRT_REPO="koyori-app/vrt"
 
 # resolve_cli_tag echoes the release tag to download. For "latest" it fetches the
@@ -178,12 +181,31 @@ run_storybook() {
   # 渡さないための最小権限化。
   log "Running: vrt ${args[*]}"
   local out cli_exit
-  set +e
-  out="$(env -i PATH="$PATH" \
-    VRT_URL="$URL" VRT_TOKEN="$TOKEN" VRT_PROJECT="${TENANT}/${PROJECT_SLUG}" \
-    "$vrt" "${args[@]}")"
-  cli_exit=$?
-  set -e
+  if [ "$ONLY_CHANGED" = "true" ]; then
+    local stdout_file selection_log
+    stdout_file="$(mktemp)"
+    selection_log="$(mktemp)"
+    register_tmp_cleanup "$stdout_file"
+    register_tmp_cleanup "$selection_log"
+    # stderr は随時表示し、stdout は既存と同じ JSON の読取に使う。
+    # PIPESTATUS の先頭を使い、ログ表示側の成否で CLI の終了値を変えない。
+    set +e
+    env -i PATH="$PATH" \
+      VRT_URL="$URL" VRT_TOKEN="$TOKEN" VRT_PROJECT="${TENANT}/${PROJECT_SLUG}" \
+      "$vrt" "${args[@]}" 2>&1 1>"$stdout_file" |
+      redact_selection_log | tee "$selection_log" >&2
+    cli_exit="${PIPESTATUS[0]}"
+    set -e
+    out="$(cat "$stdout_file")"
+    read_selection_log "$selection_log"
+  else
+    set +e
+    out="$(env -i PATH="$PATH" \
+      VRT_URL="$URL" VRT_TOKEN="$TOKEN" VRT_PROJECT="${TENANT}/${PROJECT_SLUG}" \
+      "$vrt" "${args[@]}")"
+    cli_exit=$?
+    set -e
+  fi
 
   # Parse the last stdout line as JSON, in case anything else leaked to stdout.
   # `|| true` keeps a no-match grep (exit 1) from killing the script via
