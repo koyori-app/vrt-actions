@@ -14,6 +14,7 @@ fail() {
 printf 'DIAGNOSTIC system: %s\n' "$(uname -s)"
 command -v awk
 awk -W version </dev/null 2>&1 || true
+bash tests/diagnose-selection.sh
 
 tmp="$(mktemp -d)"
 SERVER_PID=""
@@ -106,6 +107,7 @@ cat >"$tmp/cli.log" <<'EOF_LOG'
 EOF_LOG
 assert_eq 0 "$(run_action)" "task の差分検出は従来どおり成功へ読み替える"
 grep '^DIAGNOSTIC ' "$tmp/action.log" || true
+grep -A5 '^awk:' "$tmp/action.log" || true
 assert_eq full "$(value optimization-status)" "全撮影の状態を output に残す"
 assert_eq missing_provenance "$(value fallback-reason)" "証跡不足の理由を output に残す"
 assert_eq 229 "$(value captured-stories)" "実撮影数を取得する"
