@@ -5,17 +5,6 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # shellcheck source=tests/helpers.sh
 . tests/helpers.sh
 
-# 診断の間だけ全件を走らせ、失敗件数を数える。
-OBSERVED_FAILURES=0
-fail() {
-  printf 'FAIL: %s\n' "$*" >&2
-  OBSERVED_FAILURES=$((OBSERVED_FAILURES + 1))
-}
-printf 'DIAGNOSTIC system: %s\n' "$(uname -s)"
-command -v awk
-awk -W version </dev/null 2>&1 || true
-bash tests/diagnose-selection.sh
-
 tmp="$(mktemp -d)"
 SERVER_PID=""
 cleanup() {
@@ -106,8 +95,6 @@ cat >"$tmp/cli.log" <<'EOF_LOG'
 [info] render complete: rendered 229 reused 0 failed 0
 EOF_LOG
 assert_eq 0 "$(run_action)" "task の差分検出は従来どおり成功へ読み替える"
-grep '^DIAGNOSTIC ' "$tmp/action.log" || true
-grep -A5 '^awk:' "$tmp/action.log" || true
 assert_eq full "$(value optimization-status)" "全撮影の状態を output に残す"
 assert_eq missing_provenance "$(value fallback-reason)" "証跡不足の理由を output に残す"
 assert_eq 229 "$(value captured-stories)" "実撮影数を取得する"
@@ -218,6 +205,3 @@ assert_eq 4 "$(wc -l <"$tmp/output" | tr -d '[:space:]')" "未指定時も従来
 # 要約の書き込み不能を、撮影の失敗に読み替えない。
 result passed 0
 assert_eq 0 "$(run_action GITHUB_STEP_SUMMARY="$tmp/missing/summary")" "要約を書けなくても終了条件を保つ"
-
-printf 'DIAGNOSTIC failed assertions: %s\n' "$OBSERVED_FAILURES"
-[ "$OBSERVED_FAILURES" -eq 0 ]

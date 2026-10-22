@@ -34,17 +34,11 @@ read_selection_log() {
     }
     {
       line = $0
-      if ($0 == "2026-10-21T00:00:00Z INFO vrt: finalizing with a full capture") printf "DIAGNOSTIC raw: <%s>\n", line > "/dev/stderr"
       gsub(/\033\[[0-9;]*[[:alpha:]]/, "", line)
-      if ($0 == "2026-10-21T00:00:00Z INFO vrt: finalizing with a full capture") printf "DIAGNOSTIC ansi: <%s>\n", line > "/dev/stderr"
       sub(/^[[:space:]]+/, "", line)
-      if ($0 == "2026-10-21T00:00:00Z INFO vrt: finalizing with a full capture") printf "DIAGNOSTIC space: <%s>\n", line > "/dev/stderr"
       sub(/^[0-9T:.Z+-]+[[:space:]]+/, "", line)
-      if ($0 == "2026-10-21T00:00:00Z INFO vrt: finalizing with a full capture") printf "DIAGNOSTIC datetime: <%s>\n", line > "/dev/stderr"
       sub(/^(INFO|WARN|ERROR|DEBUG|TRACE)[[:space:]]+/, "", line)
-      if ($0 == "2026-10-21T00:00:00Z INFO vrt: finalizing with a full capture") printf "DIAGNOSTIC level: <%s>\n", line > "/dev/stderr"
       sub(/^[[:alnum:]_:]+:[[:space:]]+/, "", line)
-      if ($0 == "2026-10-21T00:00:00Z INFO vrt: finalizing with a full capture") printf "DIAGNOSTIC target: <%s>\n", line > "/dev/stderr"
       if (line == "finalizing with a full capture") full = 1
       if (line ~ /^finalizing with only_changed story set[[:space:]]+count=[0-9]+$/ ||
           line ~ /^count=[0-9]+[[:space:]]+finalizing with only_changed story set$/) {
@@ -87,9 +81,9 @@ read_selection_log() {
       if (status != "full") reason = ""
       if (status != "optimized") selected = ""
       printf "%s %s %s %s %s %s\n", status,
-        reason == "" ? "-" : reason, selected == "" ? "-" : selected,
-        captured == "" ? "-" : captured, reused == "" ? "-" : reused,
-        total == "" ? "-" : total
+        (reason == "" ? "-" : reason), (selected == "" ? "-" : selected),
+        (captured == "" ? "-" : captured), (reused == "" ? "-" : reused),
+        (total == "" ? "-" : total)
     }
   ' "$1")"; then
     return 0
