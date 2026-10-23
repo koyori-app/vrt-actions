@@ -52,6 +52,9 @@ write_outputs() {
     echo "result=${RESULT:-}"
     echo "exit-code=${CODE:-}"
   } >>"${GITHUB_OUTPUT:-/dev/null}"
+  if declare -F write_selection_observability >/dev/null; then
+    write_selection_observability
+  fi
 }
 
 # --- Logging / errors ------------------------------------------------------

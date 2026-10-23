@@ -82,6 +82,25 @@ outputs:
     description: VRT result code. passed/approved=0, changes_detected=1, failed/rejected/unexpected=2.
     value: ${{ steps.vrt.outputs.exit-code }}
 
+  optimization-status:
+    description: only-changed を要求したときの選択状態。optimized、full、unavailable のいずれか。
+    value: ${{ steps.vrt.outputs.optimization-status }}
+  fallback-reason:
+    description: 全撮影へ切り替えた理由のコード。分からない理由は unknown。
+    value: ${{ steps.vrt.outputs.fallback-reason }}
+  selected-stories:
+    description: CLI の計画に含まれたストーリー数。取得できないときは空。
+    value: ${{ steps.vrt.outputs.selected-stories }}
+  captured-stories:
+    description: 完了ログから取得した実際の撮影数。取得できないときは空。
+    value: ${{ steps.vrt.outputs.captured-stories }}
+  reused-stories:
+    description: 完了ログから取得した流用数。取得できないときは空。
+    value: ${{ steps.vrt.outputs.reused-stories }}
+  total-stories:
+    description: 開始ログから取得したストーリー総数。取得できないときは空。
+    value: ${{ steps.vrt.outputs.total-stories }}
+
 runs:
   using: composite
   steps:

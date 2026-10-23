@@ -108,6 +108,46 @@ action は `screenshots` を CI REST API、`storybook` を `vrt upload` に振�
 `build-url` を含む outputs は、終了コードにかかわらず（差分検出や失敗時も）書き出します。
 `continue-on-error: true` と組み合わせて、後続 step から `build-url` を参照できます。
 
+### 撮影対象の選択状態
+
+`mode: storybook` と `only-changed: true` を指定した場合にだけ、次の output と GitHub Actions の実行要約を追加します。
+指定しない場合は追加 output を書かず、既存の表示と終了条件を保ちます。
+
+| output | 説明 |
+| --- | --- |
+| `optimization-status` | `optimized` は CLI が対象集合を指定して finalize へ進んだこと、`full` は全撮影へ進んだこと、`unavailable` は判断できるログが取得できなかったことを示します。 |
+| `fallback-reason` | `full` の理由コードです。理由を読めない場合は `unknown`、全撮影以外では空になります。 |
+| `selected-stories` | CLI が選んだ計画の対象数です。取得できない場合は空になります。 |
+| `captured-stories` | サーバーの完了ログから得た実際の撮影数です。取得できない場合は空になります。 |
+| `reused-stories` | サーバーの完了ログから得た baseline の流用数です。取得できない場合は空になります。 |
+| `total-stories` | サーバーの開始ログから得たストーリー総数です。取得できない場合は空になります。 |
+
+現行 CLI の既知のログを読み、全撮影の理由を次の固定コードへ変換します。
+ログのパスや自由文を output と要約へ転記しません。
+
+| 理由コード | 意味 |
+| --- | --- |
+| `missing_provenance` | 成果物を生成したコミットを示す証跡がありません。 |
+| `legacy_provenance` | 旧形式の証跡では build の生成元を確認できません。 |
+| `missing_baseline` | 比較と流用の起点になる baseline がありません。 |
+| `insufficient_history` | baseline からの git 差分を確定できません。 |
+| `dependency_or_storybook_config_changed` | 依存の定義や Storybook の設定が変更されています。 |
+| `outside_graph` | 変更が依存グラフの外にあり、影響を限定できません。 |
+| `unknown` | 全撮影へ進むログはありますが、理由を取得できませんでした。 |
+
+全撮影の警告だけがあり finalize のログがない場合や、ログの内容が矛盾する場合も `unavailable` とします。
+古い CLI、ログの無効化、未知のログ形式を、最適化に成功した根拠にはしません。
+`optimized` は撮影を何件省略できたかを保証する値ではありません。
+全ストーリーが選択される場合もあり、新規ストーリーの追加撮影によって計画の対象数と実際の撮影数が異なる場合もあります。
+`wait: false` や処理途中の失敗で完了ログがない場合は、実撮影数と流用数を推定せず空にします。
+空はゼロ件を意味しません。
+
+実行要約には状態と理由と取得できた件数を表示します。
+この表示は補助情報であり、全撮影やログの取得不能、要約への書き込み失敗を理由に action の成否を変えません。
+`result` と `exit-code` と `exit-zero-on-changes` の契約は従来どおりです。
+本変更は build の実行や生成証跡の作成を追加しません。
+現行のログ形式の根拠は公開ソースの [CLI の対象選択](https://github.com/koyori-app/vrt/blob/cf39c6d556c0482c76574a404410cf32b418c1bf/apps/backend/crates/cli/src/main.rs) と [サーバーの撮影ログ](https://github.com/koyori-app/vrt/blob/cf39c6d556c0482c76574a404410cf32b418c1bf/apps/backend/crates/job/src/render_build.rs) です（2026年10月21日確認）。
+
 ## PAT の権限
 
 PAT は VRT の **Settings → Personal access tokens** で発行します。
